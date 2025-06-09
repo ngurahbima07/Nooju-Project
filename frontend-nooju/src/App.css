@@ -1,0 +1,4 @@
+.fc-col-header-cell .fc-cell-text,
+.fc-datagrid-expander + .fc-datagrid-cell-main {
+  text-transform: none !important; /* ⛔️ Hapus uppercase */
+}

@@ -1,0 +1,29 @@
+/*!
+FullCalendar Core v5.11.3
+Docs & License: https://fullcalendar.io/
+(c) 2022 Adam Shaw
+*/
+.fc {
+  direction: ltr;
+  text-align: left;
+}
+.fc-theme-standard .fc-scrollgrid {
+  border: 1px solid #ddd;
+}
+.fc .fc-toolbar-title {
+  font-size: 1.5em;
+  margin: 0;
+}
+.fc .fc-button {
+  background: #1e88e5;
+  border: none;
+  color: white;
+  padding: 0.4em 0.8em;
+  border-radius: 0.25em;
+}
+.fc .fc-button:hover {
+  background: #1565c0;
+}
+.fc .fc-button-primary:not(:disabled):active {
+  background: #0d47a1;
+}
