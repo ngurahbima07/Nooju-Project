@@ -109,5 +109,15 @@ public function update(Request $request, $id)
         
     }
 
+    //recent booking
+
+    public function recent()
+{
+    $recentBookings = \App\Models\Reservation::orderBy('created_at', 'desc')
+        ->take(5)
+        ->get(['id', 'first_name', 'last_name', 'room_type', 'check_in_date', 'check_out_date', 'total_price']);
+
+    return response()->json($recentBookings);
+}
     
 }

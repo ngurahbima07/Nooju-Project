@@ -7,6 +7,7 @@ import BookingChart from 'pages/Bookingchart';
 
 // render- Dashboard
 const DashboardDefault = Loadable(lazy(() => import('pages/dashboard/default')));
+const BookingManagement = Loadable(lazy(() => import('pages/BookingManagement')));
 
 // render - color
 const Color = Loadable(lazy(() => import('pages/component-overview/color')));
@@ -55,6 +56,10 @@ const MainRoutes = {
     {
       path: 'booking-chart',
       element: <BookingChart />
+    },
+    {
+      path: 'booking-management',
+      element: <BookingManagement />
     }
   ]
 };

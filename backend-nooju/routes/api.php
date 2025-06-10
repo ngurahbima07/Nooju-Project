@@ -7,11 +7,15 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\CommentController;
 
 
+
 // Reservations
 Route::get('/reservations', [ReservationController::class, 'index']);
 Route::post('/reservations', [ReservationController::class, 'store']);
 Route::put('/reservations/{id}', [ReservationController::class, 'update']);
 Route::delete('/reservations/{id}', [ReservationController::class, 'destroy']);
+
+
+Route::get('/reservations/recent', [ReservationController::class, 'recent']);
 
 
 

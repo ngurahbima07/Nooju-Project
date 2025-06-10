@@ -13,9 +13,10 @@ import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import LogoutIcon from '@mui/icons-material/Logout';
 import BuildIcon from '@mui/icons-material/Build';
 import { Accordion, AccordionSummary, AccordionDetails, List, ListItem, ListItemIcon, ListItemText, Avatar } from '@mui/material';
-import BookingListTable from './BookingListTable';
 import BookingByPlatformChart from './BookingByPlatformChart';
 import WeeklyBookingTrend from './WeeklyBookingTrend';
+
+import RecentBookingsCard from 'components/dashboard/RecentBookingsCard';
 
 const StatCard = ({ icon, title, value, color }) => {
   const theme = useTheme();
@@ -148,9 +149,8 @@ export default function DashboardQuickAnalytics() {
       <Grid item xs={12} md={6}>
         <BookingByPlatformChart />
       </Grid>
-
-      <Grid item xs={12} md={12}>
-        <BookingListTable />
+      <Grid item xs={12} md={6} lg={12}>
+        <RecentBookingsCard />
       </Grid>
     </Grid>
   );

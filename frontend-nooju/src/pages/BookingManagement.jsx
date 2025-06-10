@@ -158,7 +158,7 @@ const dummyBookings = [
   }
 ];
 
-const BookingListTable = () => {
+const BookingManagement = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
@@ -706,4 +706,4 @@ const BookingListTable = () => {
   );
 };
 
-export default BookingListTable;
+export default BookingManagement;
