@@ -40,6 +40,7 @@ const EditBookingModal = ({
   checkRoomAvailability,
   handleAddComment,
   handleAddPayment,
+  fetchReservations,
   events,
   onClose
 }) => {
@@ -56,7 +57,8 @@ const EditBookingModal = ({
     ratePlan: 'Rooms Only',
     adult: 1,
     children: 0,
-    totalPrice: 0
+    totalPrice: 0,
+    status: 'confirm' // <-- tambahkan
   });
 
   const [activeSection, setActiveSection] = useState('detail'); // 'detail' | 'payment'
@@ -92,6 +94,34 @@ const EditBookingModal = ({
 
   useEffect(() => {
     if (selectedEvent) {
+      // Fetch latest data when modal opens (only when not in edit mode)
+      const fetchLatestStatus = async () => {
+        if (!editMode && selectedEvent.id) {
+          try {
+            const response = await axios.get(`http://localhost:8000/api/reservations/${selectedEvent.id}`);
+            const latestData = response.data;
+
+            setFormData((prev) => ({
+              ...prev,
+              status: latestData.status || prev.status
+            }));
+
+            // Update selectedEvent with latest status
+            setSelectedEvent((prev) => ({
+              ...prev,
+              status: latestData.status,
+              extendedProps: {
+                ...prev.extendedProps,
+                status: latestData.status
+              }
+            }));
+          } catch (error) {
+            console.error('Failed to fetch latest status:', error);
+          }
+        }
+      };
+
+      // Set initial form data
       setFormData({
         firstName: selectedEvent.firstName || '',
         lastName: selectedEvent.lastName || '',
@@ -103,23 +133,25 @@ const EditBookingModal = ({
         ratePlan: selectedEvent.ratePlan || 'Rooms Only',
         adult: selectedEvent.adult || 1,
         children: selectedEvent.children || 0,
-        totalPrice: selectedEvent.totalPrice || 0
+        totalPrice: selectedEvent.totalPrice || 0,
+        status: selectedEvent.extendedProps?.status || selectedEvent.status || 'confirm'
       });
 
-      // ✅ Ambil rates jika tersedia
+      // Get rates if available
       const rawRates =
-        selectedEvent.extendedProps?.daily_rates || // ✅ primary dari backend
-        selectedEvent.extendedProps?.dailyRates || // ✅ fallback dari frontend
-        selectedEvent.daily_rates || // ❌ biasanya undefined
-        selectedEvent.dailyRates || // ❌ biasanya undefined
+        selectedEvent.extendedProps?.daily_rates ||
+        selectedEvent.extendedProps?.dailyRates ||
+        selectedEvent.daily_rates ||
+        selectedEvent.dailyRates ||
         [];
-
-      console.log('💡 daily_rates:', selectedEvent.extendedProps?.daily_rates);
 
       if (Array.isArray(rawRates)) {
         setDailyRates(rawRates);
-        setHasLoadedRates(true); // ✅ sudah pernah load dari backend
+        setHasLoadedRates(true);
       }
+
+      // Fetch latest status
+      fetchLatestStatus();
     }
   }, [selectedEvent]);
 
@@ -184,6 +216,8 @@ const EditBookingModal = ({
   };
 
   const handleSubmit = (e) => {
+    console.log('Status yang akan dikirim:', formData.status);
+
     e.preventDefault();
     const finalTotal = dailyRates.length > 0 ? calculateTotalFromRates() : formData.totalPrice;
     handleUpdateEvent({ ...formData, totalPrice: finalTotal }, dailyRates);
@@ -407,6 +441,23 @@ const EditBookingModal = ({
                       startAdornment: <InputAdornment position="start">IDR</InputAdornment>
                     }}
                   />
+                </Grid>
+
+                <Grid item xs={6}>
+                  <TextField
+                    label="Status"
+                    name="status"
+                    select
+                    fullWidth
+                    required
+                    value={formData.status || 'confirm'}
+                    onChange={handleChange}
+                    InputProps={{ readOnly: !editMode }}
+                  >
+                    <MenuItem value="confirm">Confirm</MenuItem>
+                    <MenuItem value="onhold">On Hold</MenuItem>
+                    <MenuItem value="cancel">Cancel</MenuItem>
+                  </TextField>
                 </Grid>
 
                 {editMode && (

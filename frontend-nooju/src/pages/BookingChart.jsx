@@ -113,6 +113,45 @@ export default function BookingChart() {
   const [readyToRender, setReadyToRender] = useState(false);
   const [resources, setResources] = useState([]);
 
+  const fetchReservations = async () => {
+    try {
+      setIsLoading((prev) => ({ ...prev, events: true }));
+
+      const response = await axios.get('http://localhost:8000/api/reservations');
+
+      // TAMBAHKAN filter & mapping seperti sebelumnya!
+      const filtered = response.data.filter((item) => item.status === 'confirm' || item.status === 'onhold');
+
+      const formatted = filtered.map((item) => {
+        const isUnassigned = !item.sub_room || item.sub_room === 'UNASSIGNED';
+        const resourceId = isUnassigned ? 'UNASSIGNED' : `${item.room_type}-${item.sub_room}`;
+
+        return {
+          id: String(item.id),
+          title: item.is_maintenance ? `Maintenance - ${item.room_type} ${item.sub_room}` : `${item.first_name} ${item.last_name}`,
+          start: item.check_in_date,
+          end: item.check_out_date,
+          resourceId,
+          status: item.status,
+          extendedProps: item,
+          daily_rates: item.daily_rates || [],
+          paid_amount: item.paid_amount || 0,
+          backgroundColor: item.is_maintenance ? '#ff9800' : !item.sub_room || item.sub_room === 'UNASSIGNED' ? '#bfbfbf' : '#3788D8'
+        };
+      });
+
+      setEvents(formatted);
+      setIsLoading((prev) => ({ ...prev, events: false }));
+    } catch (error) {
+      if (!axios.isCancel(error)) {
+        setIsLoading((prev) => ({ ...prev, events: false }));
+        showSnackbar('Gagal memuat data reservasi', 'error');
+        console.error('Fetch error:', error);
+        setEvents([]);
+      }
+    }
+  };
+
   // Initialize rooms and resources
 
   useEffect(() => {
@@ -147,51 +186,7 @@ export default function BookingChart() {
   // Gantikan bagian fetch data dengan ini:
   useEffect(() => {
     const abortController = new AbortController();
-    let isMounted = true;
-
-    const fetchReservations = async () => {
-      try {
-        // Set loading state before making the request
-        setIsLoading((prev) => ({ ...prev, events: true }));
-
-        const response = await axios.get('http://localhost:8000/api/reservations', {
-          signal: abortController.signal
-        });
-
-        if (isMounted) {
-          const formatted = response.data.map((item) => {
-            const isUnassigned = !item.sub_room || item.sub_room === 'UNASSIGNED';
-            // console.log('📦 fetched item:', item);
-
-            const resourceId = isUnassigned ? 'UNASSIGNED' : `${item.room_type}-${item.sub_room}`;
-
-            return {
-              id: String(item.id),
-              title: item.is_maintenance ? `Maintenance - ${item.room_type} ${item.sub_room}` : `${item.first_name} ${item.last_name}`,
-              start: item.check_in_date,
-              end: item.check_out_date,
-              resourceId,
-              extendedProps: item,
-              daily_rates: item.daily_rates || [],
-              paid_amount: item.paid_amount || 0,
-              backgroundColor: item.is_maintenance ? '#ff9800' : !item.sub_room || item.sub_room === 'UNASSIGNED' ? '#bfbfbf' : '#3788D8'
-            };
-          });
-
-          setEvents(formatted);
-          setIsLoading((prev) => ({ ...prev, events: false }));
-        }
-      } catch (error) {
-        if (!axios.isCancel(error) && isMounted) {
-          setIsLoading((prev) => ({ ...prev, events: false }));
-          showSnackbar('Gagal memuat data reservasi', 'error');
-          console.error('Fetch error:', error);
-
-          // Fallback empty state
-          setEvents([]);
-        }
-      }
-    };
+    // let isMounted = true;
 
     // Only fetch if resources are already loaded
     if (!isLoading.resources) {
@@ -199,7 +194,7 @@ export default function BookingChart() {
     }
 
     return () => {
-      isMounted = false;
+      // isMounted = false;
       abortController.abort();
     };
   }, [isLoading.resources]); // Add dependency to re-fetch when resources are ready
@@ -411,7 +406,8 @@ export default function BookingChart() {
         checkout: props.check_out_date,
         totalPrice: props.total_price,
         dailyRates: props.daily_rates || [],
-        total_price: props.total_price // ✅ TAMBAHKAN INI
+        total_price: props.total_price, // ✅ TAMBAHKAN INI
+        status: props.status
       });
     }
     setEditMode(false);
@@ -611,7 +607,8 @@ export default function BookingChart() {
         check_in_date: eventData.checkin,
         check_out_date: eventData.checkout,
         total_price: parseFloat(eventData.totalPrice) || 0,
-        daily_rates: dailyRates // Kirim dailyRates ke backend
+        daily_rates: dailyRates, // Kirim dailyRates ke backend
+        status: 'confirm' // <-- tambahkan ini
       };
 
       const response = await axios.post('http://localhost:8000/api/reservations', payload);
@@ -630,7 +627,7 @@ export default function BookingChart() {
         }
       };
 
-      setEvents((prev) => [...prev, newEventData]);
+      await fetchReservations();
       showSnackbar('Reservasi berhasil disimpan!', 'success');
       setNewEvent({ ...eventData, open: false });
     } catch (error) {
@@ -682,35 +679,16 @@ export default function BookingChart() {
         check_in_date: updatedData.checkin,
         check_out_date: updatedData.checkout,
         total_price: parseFloat(updatedData.totalPrice) || 0,
-        daily_rates: dailyRates
+        daily_rates: dailyRates,
+        status: updatedData.status // <-- TAMBAHKAN INI!
       };
 
       const response = await axios.put(`http://localhost:8000/api/reservations/${updatedData.id}`, payload);
       // Setelah berhasil update reservasi, fetch ulang pembayaran terbaru
-      const paymentResponse = await axios.get(`http://localhost:8000/api/payments/by-booking/${updatedData.id}`);
+      await axios.get(`http://localhost:8000/api/payments/by-booking/${updatedData.id}`);
 
       // Update event lokal
-      setEvents((prevEvents) =>
-        prevEvents.map((event) =>
-          event.id === updatedData.id
-            ? {
-                ...event,
-                title: `${payload.first_name} ${payload.last_name}`,
-                start: payload.check_in_date,
-                end: payload.check_out_date,
-                resourceId: payload.sub_room === 'UNASSIGNED' ? 'UNASSIGNED' : `${payload.room_type}-${payload.sub_room}`,
-                backgroundColor: payload.sub_room === 'UNASSIGNED' ? '#bfbfbf' : '#3788d8',
-                extendedProps: {
-                  ...event.extendedProps,
-                  ...response.data.data,
-                  daily_rates: response.data.data.daily_rates,
-                  payments: paymentResponse.data // ⬅️ Tambahkan ini
-                }
-              }
-            : event
-        )
-      );
-
+      await fetchReservations();
       showSnackbar('Reservasi berhasil diupdate!', 'success');
       setEditMode(false);
       setSelectedEvent(null);
@@ -1220,6 +1198,7 @@ export default function BookingChart() {
         handleAddPayment={handleAddPayment}
         events={events}
         onClose={() => setSelectedEvent(null)} // ✅ TAMBAHKAN INI
+        fetchReservations={fetchReservations} // <-- Tambahkan ini!
       />
 
       {/* Delete Confirmation Dialog */}

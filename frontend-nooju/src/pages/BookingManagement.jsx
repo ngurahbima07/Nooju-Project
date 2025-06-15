@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import axios from 'axios';
 import {
   Box,
   Paper,
@@ -50,115 +51,41 @@ import {
 } from '@mui/icons-material';
 
 // Enhanced dummy data with more realistic information
-const dummyBookings = [
-  {
-    id: 'BK001',
-    source: 'Booking.com',
-    guestName: 'John Smith',
-    guestEmail: 'john.smith@email.com',
-    roomType: 'Deluxe Suite',
-    roomNumber: '101',
-    arrival: '2024-06-15',
-    departure: '2024-06-18',
-    bookedAt: '2024-06-01T10:30:00',
-    totalPayment: 450.0,
-    paymentMethod: 'credit_card',
-    status: 'confirmed',
-    notes: 'Requested high floor, non-smoking'
-  },
-  {
-    id: 'BK002',
-    source: 'Direct',
-    guestName: 'Sarah Johnson',
-    guestEmail: 'sarah.j@email.com',
-    roomType: 'Standard Room',
-    roomNumber: '205',
-    arrival: '2024-06-20',
-    departure: '2024-06-22',
-    bookedAt: '2024-06-05T14:15:00',
-    totalPayment: 280.0,
-    paymentMethod: 'bank_transfer',
-    status: 'pending',
-    notes: 'Waiting for payment confirmation'
-  },
-  {
-    id: 'BK003',
-    source: 'Expedia',
-    guestName: 'Michael Brown',
-    guestEmail: 'michael.brown@email.com',
-    roomType: 'Executive Suite',
-    roomNumber: '301',
-    arrival: '2024-06-25',
-    departure: '2024-06-28',
-    bookedAt: '2024-06-10T09:45:00',
-    totalPayment: 720.0,
-    paymentMethod: 'credit_card',
-    status: 'confirmed',
-    notes: 'Anniversary stay - add complimentary champagne'
-  },
-  {
-    id: 'BK004',
-    source: 'Airbnb',
-    guestName: 'Emily Davis',
-    guestEmail: 'emily.davis@email.com',
-    roomType: 'Standard Room',
-    roomNumber: '102',
-    arrival: '2024-06-12',
-    departure: '2024-06-14',
-    bookedAt: '2024-05-28T16:20:00',
-    totalPayment: 180.0,
-    paymentMethod: 'cash',
-    status: 'cancelled',
-    notes: 'Cancelled due to flight changes'
-  },
-  {
-    id: 'BK005',
-    source: 'Direct',
-    guestName: 'Robert Wilson',
-    guestEmail: 'robert.wilson@email.com',
-    roomType: 'Premium Suite',
-    roomNumber: '402',
-    arrival: '2024-07-01',
-    departure: '2024-07-05',
-    bookedAt: '2024-06-08T11:10:00',
-    totalPayment: 960.0,
-    paymentMethod: 'credit_card',
-    status: 'confirmed',
-    notes: 'VIP client - room upgrade approved'
-  },
-  {
-    id: 'BK006',
-    source: 'Hotels.com',
-    guestName: 'Lisa Anderson',
-    guestEmail: 'lisa.anderson@email.com',
-    roomType: 'Standard Room',
-    roomNumber: '203',
-    arrival: '2024-06-30',
-    departure: '2024-07-02',
-    bookedAt: '2024-06-12T13:55:00',
-    totalPayment: 220.0,
-    paymentMethod: 'bank_transfer',
-    status: 'pending',
-    notes: 'Requested late check-out'
-  },
-  {
-    id: 'BK007',
-    source: 'Booking.com',
-    guestName: 'David Martinez',
-    guestEmail: 'david.martinez@email.com',
-    roomType: 'Deluxe Suite',
-    roomNumber: '103',
-    arrival: '2024-06-18',
-    departure: '2024-06-21',
-    bookedAt: '2024-06-03T08:30:00',
-    totalPayment: 540.0,
-    paymentMethod: 'credit_card',
-    status: 'confirmed',
-    notes: 'Allergic to nuts - please note for breakfast'
-  }
-];
 
 const BookingManagement = () => {
+  const [bookings, setBookings] = useState([]);
+  useEffect(() => {
+    const fetchBookings = async () => {
+      try {
+        setLoading(true);
+        const res = await axios.get('http://localhost:8000/api/reservations');
+
+        const mapped = res.data.map((r) => ({
+          id: r.id,
+          source: 'Direct',
+          guestName: `${r.first_name} ${r.last_name}`,
+          guestEmail: r.email || '-',
+          roomType: r.room_type,
+          roomNumber: r.sub_room,
+          arrival: r.check_in_date,
+          departure: r.check_out_date,
+          bookedAt: r.created_at,
+          totalPayment: parseFloat(r.total_price),
+          paymentMethod: 'cash',
+          status: r.status || 'confirmed',
+          notes: ''
+        }));
+
+        setBookings(mapped);
+      } catch (error) {
+        console.error('❌ Gagal fetch data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchBookings();
+  }, []);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
@@ -179,53 +106,58 @@ const BookingManagement = () => {
 
   // Filter bookings based on search and status
   const filteredBookings = useMemo(() => {
-    simulateLoading();
-    return dummyBookings.filter((booking) => {
+    return bookings.filter((booking) => {
       const matchesSearch =
         searchText === '' ||
         booking.guestName.toLowerCase().includes(searchText.toLowerCase()) ||
         booking.guestEmail.toLowerCase().includes(searchText.toLowerCase()) ||
-        booking.id.toLowerCase().includes(searchText.toLowerCase()) ||
-        booking.roomNumber.toLowerCase().includes(searchText.toLowerCase());
+        booking.id.toString().toLowerCase().includes(searchText.toLowerCase()) ||
+        booking.roomNumber?.toString().toLowerCase().includes(searchText.toLowerCase());
 
       const matchesStatus = statusFilter === 'all' || booking.status === statusFilter;
 
       return matchesSearch && matchesStatus;
     });
-  }, [searchText, statusFilter]);
+  }, [searchText, statusFilter, bookings]);
 
   // Status chip component
   const StatusChip = ({ status }) => {
-    const getStatusConfig = (status) => {
-      switch (status) {
-        case 'confirmed':
-          return {
-            color: 'success',
-            icon: <CheckCircleIcon sx={{ fontSize: 16 }} />,
-            label: 'Confirmed'
-          };
-        case 'pending':
-          return {
-            color: 'warning',
-            icon: <ScheduleIcon sx={{ fontSize: 16 }} />,
-            label: 'Pending'
-          };
-        case 'cancelled':
-          return {
-            color: 'error',
-            icon: <CancelIcon sx={{ fontSize: 16 }} />,
-            label: 'Cancelled'
-          };
-        default:
-          return {
-            color: 'default',
-            icon: <ScheduleIcon sx={{ fontSize: 16 }} />,
-            label: 'Unknown'
-          };
+    // Pastikan status lowercase agar konsisten
+    const normalized = (status || '').toLowerCase();
+
+    const config = {
+      confirmed: {
+        color: 'success',
+        icon: <CheckCircleIcon sx={{ fontSize: 16, mb: '2px' }} />,
+        label: 'Confirmed'
+      },
+      pending: {
+        color: 'warning',
+        icon: <ScheduleIcon sx={{ fontSize: 16, mb: '2px' }} />,
+        label: 'Pending'
+      },
+      cancelled: {
+        color: 'error',
+        icon: <CancelIcon sx={{ fontSize: 16, mb: '2px' }} />,
+        label: 'Cancelled'
+      },
+      canceled: {
+        // jaga-jaga untuk typo di backend
+        color: 'error',
+        icon: <CancelIcon sx={{ fontSize: 16, mb: '2px' }} />,
+        label: 'Cancelled'
+      },
+      unassigned: {
+        color: 'info',
+        icon: <ScheduleIcon sx={{ fontSize: 16, mb: '2px' }} />,
+        label: 'Unassigned'
       }
+    }[normalized] || {
+      color: 'default',
+      icon: <ScheduleIcon sx={{ fontSize: 16, mb: '2px' }} />,
+      label: normalized.charAt(0).toUpperCase() + normalized.slice(1)
     };
 
-    const config = getStatusConfig(status);
     return (
       <Chip
         icon={config.icon}
@@ -234,10 +166,15 @@ const BookingManagement = () => {
         size="small"
         variant="filled"
         sx={{
-          borderRadius: 1,
+          borderRadius: 2,
           fontWeight: 500,
-          width: 100,
-          justifyContent: 'flex-start'
+          px: 1.5,
+          minWidth: 100,
+          justifyContent: 'flex-start',
+          textTransform: 'capitalize',
+          height: 28,
+          display: 'flex',
+          alignItems: 'center'
         }}
       />
     );
@@ -360,18 +297,55 @@ const BookingManagement = () => {
     {
       field: 'id',
       headerName: 'Booking ID',
-      width: 120,
+      minWidth: 90,
+      width: 110,
+      align: 'center',
+      headerAlign: 'center',
       renderCell: (params) => (
-        <Typography variant="body2" fontWeight="bold" color="primary">
-          {params.value}
-        </Typography>
+        <Box
+          sx={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <Typography
+            variant="body2"
+            fontWeight="bold"
+            color="primary"
+            noWrap
+            sx={{
+              textAlign: 'center',
+              letterSpacing: 1
+            }}
+          >
+            {params.value}
+          </Typography>
+        </Box>
       )
     },
     {
       field: 'source',
       headerName: 'Source',
+      minWidth: 90,
       width: 120,
-      renderCell: (params) => <Chip label={params.value} size="small" variant="outlined" color="primary" sx={{ borderRadius: 1 }} />
+      align: 'center',
+      headerAlign: 'center',
+      renderCell: (params) => (
+        <Box
+          sx={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <Chip label={params.value} size="small" variant="outlined" color="primary" sx={{ borderRadius: 1 }} />
+        </Box>
+      )
     },
     {
       field: 'guest',
@@ -379,7 +353,16 @@ const BookingManagement = () => {
       minWidth: 220,
       flex: 1,
       renderCell: (params) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Box
+          sx={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            py: 1
+          }}
+        >
           <Avatar
             sx={{
               width: 32,
@@ -389,32 +372,24 @@ const BookingManagement = () => {
               fontWeight: 500
             }}
           >
-            {params.row.guestName.charAt(0)}
+            {params.row.guestName.charAt(0).toUpperCase()}
           </Avatar>
-          <Box>
-            <Typography variant="body2" fontWeight={600}>
+          <Box sx={{ overflow: 'hidden' }}>
+            <Typography variant="body2" fontWeight={600} noWrap>
               {params.row.guestName}
             </Typography>
-            <Typography variant="caption" color="text.secondary" noWrap>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              noWrap
+              sx={{
+                display: 'block',
+                textOverflow: 'ellipsis'
+              }}
+            >
               {params.row.guestEmail}
             </Typography>
           </Box>
-        </Box>
-      )
-    },
-    {
-      field: 'room',
-      headerName: 'Room',
-      minWidth: 160,
-      flex: 1,
-      renderCell: (params) => (
-        <Box>
-          <Typography variant="body2" fontWeight={600}>
-            {params.row.roomType}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Room {params.row.roomNumber}
-          </Typography>
         </Box>
       )
     },
@@ -424,7 +399,16 @@ const BookingManagement = () => {
       minWidth: 180,
       flex: 1,
       renderCell: (params) => (
-        <Box>
+        <Box
+          sx={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            py: 1
+          }}
+        >
           <Typography variant="body2">
             <Box component="span" fontWeight={600}>
               Arr:
@@ -443,42 +427,81 @@ const BookingManagement = () => {
     {
       field: 'payment',
       headerName: 'Payment',
-      minWidth: 150,
-      flex: 1,
+      minWidth: 170,
+      flex: 0.9,
       renderCell: (params) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <PaymentMethodIcon method={params.row.paymentMethod} />
-          <Box>
-            <Typography variant="body2" fontWeight={600}>
-              ${params.row.totalPayment.toFixed(2)}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" textTransform="capitalize">
-              {params.row.paymentMethod.replace('_', ' ')}
+        <Box
+          sx={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            py: 1
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <PaymentMethodIcon method={params.row.paymentMethod} />
+            <Typography variant="body2" fontWeight={700} noWrap>
+              {params.row.totalPayment.toLocaleString('en-US', {
+                style: 'currency',
+                currency: 'USD',
+                minimumFractionDigits: 0
+              })}
             </Typography>
           </Box>
+          <Typography variant="caption" color="text.secondary" textTransform="capitalize" noWrap>
+            {params.row.paymentMethod.replace('_', ' ')}
+          </Typography>
         </Box>
       )
     },
     {
       field: 'status',
       headerName: 'Status',
-      width: 120,
-      renderCell: (params) => <StatusChip status={params.value} />
+      minWidth: 120,
+      flex: 0.7,
+      align: 'center',
+      headerAlign: 'center',
+      renderCell: (params) => (
+        <Box
+          sx={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <StatusChip status={params.value} />
+        </Box>
+      )
     },
     {
       field: 'actions',
       headerName: 'Actions',
       width: 120,
       sortable: false,
+      align: 'center',
+      headerAlign: 'center',
       renderCell: (params) => (
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
+        <Box
+          sx={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 0.5
+          }}
+        >
           <Tooltip title="View details">
             <IconButton
               size="small"
               onClick={() => handleView(params.row)}
               sx={{
                 color: theme.palette.info.main,
-                '&:hover': { backgroundColor: theme.palette.info.light }
+                '&:hover': { backgroundColor: theme.palette.info.lighter }
               }}
             >
               <ViewIcon fontSize="small" />
@@ -490,7 +513,7 @@ const BookingManagement = () => {
               onClick={() => handleEdit(params.row)}
               sx={{
                 color: theme.palette.warning.main,
-                '&:hover': { backgroundColor: theme.palette.warning.light }
+                '&:hover': { backgroundColor: theme.palette.warning.lighter }
               }}
             >
               <EditIcon fontSize="small" />
@@ -502,7 +525,7 @@ const BookingManagement = () => {
               onClick={() => handleDelete(params.row)}
               sx={{
                 color: theme.palette.error.main,
-                '&:hover': { backgroundColor: theme.palette.error.light }
+                '&:hover': { backgroundColor: theme.palette.error.lighter }
               }}
             >
               <DeleteIcon fontSize="small" />

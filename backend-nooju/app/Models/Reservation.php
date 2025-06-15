@@ -9,7 +9,7 @@ class Reservation extends Model
     protected $fillable = [
  'first_name', 'last_name', 'email', 'room_type', 'sub_room',
     'rate_plan', 'adult', 'children', 'check_in_date',
-    'check_out_date', 'total_price', 'daily_rates'
+    'check_out_date', 'total_price', 'daily_rates', 'status'
     ];
     
     protected $casts = [

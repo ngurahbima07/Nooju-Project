@@ -44,7 +44,7 @@ export default function DashboardLayout() {
             flexDirection: 'column'
           }}
         >
-          {!['/reservation-chart', '/apps/profiles/account/my-account'].includes(pathname) && <Breadcrumbs />}
+          {!['/reservation-chart', '/apps/profiles/account/my-account', '/booking-management'].includes(pathname) && <Breadcrumbs />}
 
           <Outlet />
           <Footer />

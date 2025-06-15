@@ -23,7 +23,7 @@ export const checkRoomAvailability = (roomType, subRoom, checkin, checkout, excl
   return !events.some((event) => {
     const ev = event.extendedProps || {};
     const isSameRoom = String(ev.sub_room) === String(subRoom) && String(ev.room_type) === String(roomType);
-    console.log('🔍 ROOM MATCH?', { isSameRoom, subRoom, evSubRoom: ev.sub_room, roomType, evRoomType: ev.room_type });
+    // console.log('🔍 ROOM MATCH?', { isSameRoom, subRoom, evSubRoom: ev.sub_room, roomType, evRoomType: ev.room_type });
     const isExcluded = excludeId && String(event.id) === String(excludeId);
 
     if (!isSameRoom || isExcluded) return false;
@@ -33,8 +33,8 @@ export const checkRoomAvailability = (roomType, subRoom, checkin, checkout, excl
 
     // Periksa tumpang tindih tanggal (termasuk kasus edge)
 
-    console.log({ roomType, subRoom, checkin, checkout, excludeId });
-    console.log('EVENTS:', events);
+    // console.log({ roomType, subRoom, checkin, checkout, excludeId });
+    // console.log('EVENTS:', events);
     return (
       (newStart >= eventStart && newStart < eventEnd) || // Mulai di tengah booking lain
       (newEnd > eventStart && newEnd <= eventEnd) || // Berakhir di tengah booking lain
