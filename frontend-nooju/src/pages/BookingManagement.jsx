@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import axios from 'axios';
+
+import EditBookingManagementModal from 'components/booking/EditBookingManagementModal';
 import {
   Box,
   Paper,
@@ -53,6 +55,10 @@ import {
 // Enhanced dummy data with more realistic information
 
 const BookingManagement = () => {
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [bookingToDelete, setBookingToDelete] = useState(null);
+
   const [bookings, setBookings] = useState([]);
   useEffect(() => {
     const fetchBookings = async () => {
@@ -201,13 +207,56 @@ const BookingManagement = () => {
   };
 
   const handleEdit = (booking) => {
-    setAlertMessage(`Edit booking for ${booking.guestName} (${booking.id})`);
-    setAlertOpen(true);
+    setSelectedBooking(booking);
+    setEditModalOpen(true);
   };
 
   const handleDelete = (booking) => {
-    setAlertMessage(`Delete booking for ${booking.guestName} (${booking.id})`);
-    setAlertOpen(true);
+    setBookingToDelete(booking);
+    setDeleteConfirmOpen(true);
+  };
+
+  // Tambahkan fungsi untuk handle save dan delete:
+  const handleSaveBooking = async (updatedBooking) => {
+    try {
+      setLoading(true);
+
+      // Update state bookings
+      setBookings((prev) => prev.map((b) => (b.id === updatedBooking.id ? updatedBooking : b)));
+
+      setAlertMessage('Booking updated successfully');
+      setAlertOpen(true);
+      setEditModalOpen(false);
+    } catch (error) {
+      console.error('Failed to update booking:', error);
+      setAlertMessage('Failed to update booking');
+      setAlertOpen(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    try {
+      setLoading(true);
+
+      // Hapus dari API
+      await axios.delete(`http://localhost:8000/api/reservations/${bookingToDelete.id}`);
+
+      // Update state
+      setBookings((prev) => prev.filter((b) => b.id !== bookingToDelete.id));
+
+      setAlertMessage('Booking deleted successfully');
+      setAlertOpen(true);
+    } catch (error) {
+      console.error('Failed to delete booking:', error);
+      setAlertMessage('Failed to delete booking');
+      setAlertOpen(true);
+    } finally {
+      setLoading(false);
+      setDeleteConfirmOpen(false);
+      setBookingToDelete(null);
+    }
   };
 
   const handleAddNew = () => {
