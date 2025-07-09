@@ -1,16 +1,21 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import axios from 'axios';
+import { format, differenceInDays } from 'date-fns';
 
+// Components
 import EditBookingManagementModal from 'components/booking/EditBookingManagementModal';
+import BookingComments from 'components/booking/BookingComments';
+
+// Material-UI Components
 import {
   Box,
-  Paper,
   Typography,
   TextField,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
+  Paper,
   Chip,
   IconButton,
   Avatar,
@@ -25,8 +30,15 @@ import {
   useTheme,
   useMediaQuery,
   Tooltip,
-  LinearProgress
+  LinearProgress,
+  DialogContentText,
+  Card,
+  CardContent,
+  Grid,
+  Divider
 } from '@mui/material';
+
+// Data Grid Components
 import {
   DataGrid,
   GridToolbarContainer,
@@ -35,6 +47,8 @@ import {
   GridToolbarFilterButton,
   GridToolbarDensitySelector
 } from '@mui/x-data-grid';
+
+// Icons
 import {
   Search as SearchIcon,
   Visibility as ViewIcon,
@@ -49,698 +63,554 @@ import {
   AttachMoney as CashIcon,
   Add as AddIcon,
   FilterAlt as FilterIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  DoorFront as DoorFrontIcon,
+  CalendarMonth as CalendarMonthIcon
 } from '@mui/icons-material';
 
-// Enhanced dummy data with more realistic information
+// IMPOR MAIN CARD UNTUK KONSISTENSI DESAIN
+import MainCard from 'components/MainCard';
 
 const BookingManagement = () => {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState(null);
-
+  const [bookingToEdit, setBookingToEdit] = useState(null);
   const [bookings, setBookings] = useState([]);
-  useEffect(() => {
-    const fetchBookings = async () => {
-      try {
-        setLoading(true);
-        const res = await axios.get('http://localhost:8000/api/reservations');
-
-        const mapped = res.data.map((r) => ({
-          id: r.id,
-          source: 'Direct',
-          guestName: `${r.first_name} ${r.last_name}`,
-          guestEmail: r.email || '-',
-          roomType: r.room_type,
-          roomNumber: r.sub_room,
-          arrival: r.check_in_date,
-          departure: r.check_out_date,
-          bookedAt: r.created_at,
-          totalPayment: parseFloat(r.total_price),
-          paymentMethod: 'cash',
-          status: r.status || 'confirmed',
-          notes: ''
-        }));
-
-        setBookings(mapped);
-      } catch (error) {
-        console.error('❌ Gagal fetch data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchBookings();
-  }, []);
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-
-  const [searchText, setSearchText] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [pageSize, setPageSize] = useState(10);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [selectedBooking, setSelectedBooking] = useState(null);
   const [alertOpen, setAlertOpen] = useState(false);
   const [alertMessage, setAlertMessage] = useState('');
-  const [selectedBooking, setSelectedBooking] = useState(null);
-  const [viewDialogOpen, setViewDialogOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
 
-  // Simulate loading
-  const simulateLoading = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
+  // Fungsi untuk mengambil data booking
+  const fetchBookings = async () => {
     setLoading(true);
-    setTimeout(() => setLoading(false), 800);
-  };
+    setError(null);
+    try {
+      const response = await axios.get('http://localhost:8000/api/reservations');
 
-  // Filter bookings based on search and status
-  const filteredBookings = useMemo(() => {
-    return bookings.filter((booking) => {
-      const matchesSearch =
-        searchText === '' ||
-        booking.guestName.toLowerCase().includes(searchText.toLowerCase()) ||
-        booking.guestEmail.toLowerCase().includes(searchText.toLowerCase()) ||
-        booking.id.toString().toLowerCase().includes(searchText.toLowerCase()) ||
-        booking.roomNumber?.toString().toLowerCase().includes(searchText.toLowerCase());
+      // *** KRUSIAL: Filter out any null/undefined entries from the raw response data ***
+      const rawBookings = Array.isArray(response.data) ? response.data.filter((booking) => booking != null) : [];
 
-      const matchesStatus = statusFilter === 'all' || booking.status === statusFilter;
+      const formattedBookings = rawBookings
+        .map((booking) => ({
+          // *** KRUSIAL: PASTIKAN ID SELALU ADA DAN VALID UNTUK DATAGRID ***
+          // Konversi id ke string, jika booking.id null/undefined, set id menjadi null
+          id: booking.id != null ? String(booking.id) : null,
+          guestName: `${booking.first_name || ''} ${booking.last_name || ''}`,
+          guestEmail: booking.email || '',
+          roomType: booking.room_type || '',
+          roomNumber: booking.sub_room || '',
+          arrival: booking.check_in_date || '',
+          departure: booking.check_out_date || '',
+          totalPayment: booking.total_price != null ? Number(booking.total_price) : 0,
+          status: booking.status || 'pending',
+          paid_amount: booking.paid_amount != null ? Number(booking.paid_amount) : 0
+        }))
+        // *** KRUSIAL: FILTER TAMBAHAN: Hapus baris yang memiliki ID null setelah pemformatan ***
+        .filter((booking) => booking.id != null);
 
-      return matchesSearch && matchesStatus;
-    });
-  }, [searchText, statusFilter, bookings]);
-
-  // Status chip component
-  const StatusChip = ({ status }) => {
-    // Pastikan status lowercase agar konsisten
-    const normalized = (status || '').toLowerCase();
-
-    const config = {
-      confirmed: {
-        color: 'success',
-        icon: <CheckCircleIcon sx={{ fontSize: 16, mb: '2px' }} />,
-        label: 'Confirmed'
-      },
-      pending: {
-        color: 'warning',
-        icon: <ScheduleIcon sx={{ fontSize: 16, mb: '2px' }} />,
-        label: 'Pending'
-      },
-      cancelled: {
-        color: 'error',
-        icon: <CancelIcon sx={{ fontSize: 16, mb: '2px' }} />,
-        label: 'Cancelled'
-      },
-      canceled: {
-        // jaga-jaga untuk typo di backend
-        color: 'error',
-        icon: <CancelIcon sx={{ fontSize: 16, mb: '2px' }} />,
-        label: 'Cancelled'
-      },
-      unassigned: {
-        color: 'info',
-        icon: <ScheduleIcon sx={{ fontSize: 16, mb: '2px' }} />,
-        label: 'Unassigned'
-      }
-    }[normalized] || {
-      color: 'default',
-      icon: <ScheduleIcon sx={{ fontSize: 16, mb: '2px' }} />,
-      label: normalized.charAt(0).toUpperCase() + normalized.slice(1)
-    };
-
-    return (
-      <Chip
-        icon={config.icon}
-        label={config.label}
-        color={config.color}
-        size="small"
-        variant="filled"
-        sx={{
-          borderRadius: 2,
-          fontWeight: 500,
-          px: 1.5,
-          minWidth: 100,
-          justifyContent: 'flex-start',
-          textTransform: 'capitalize',
-          height: 28,
-          display: 'flex',
-          alignItems: 'center'
-        }}
-      />
-    );
-  };
-
-  // Payment method icon component
-  const PaymentMethodIcon = ({ method }) => {
-    switch (method) {
-      case 'credit_card':
-        return <CreditCardIcon sx={{ fontSize: 18, color: theme.palette.primary.main }} />;
-      case 'bank_transfer':
-        return <BankIcon sx={{ fontSize: 18, color: theme.palette.info.main }} />;
-      case 'cash':
-        return <CashIcon sx={{ fontSize: 18, color: theme.palette.success.main }} />;
-      default:
-        return <PaymentIcon sx={{ fontSize: 18, color: theme.palette.grey[500] }} />;
+      setBookings(formattedBookings);
+    } catch (err) {
+      console.error('Error fetching bookings:', err);
+      setError('Gagal memuat data booking.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Handle action clicks
+  useEffect(() => {
+    fetchBookings();
+  }, []);
+
+  const handleEdit = (booking) => {
+    setBookingToEdit(booking);
+    setEditModalOpen(true);
+  };
+
+  const handleSaveEdit = (bookingId) => {
+    // Setelah edit, muat ulang data
+    fetchBookings();
+  };
+
+  const handleDeleteBooking = async (id) => {
+    setLoading(true);
+    try {
+      await axios.delete(`http://localhost:8000/api/reservations/${id}`);
+      setAlertMessage('Booking berhasil dihapus!');
+      setAlertOpen(true);
+      fetchBookings(); // Muat ulang data setelah penghapusan
+      setDeleteConfirmOpen(false); // Tutup konfirmasi hapus
+      setEditModalOpen(false); // Tutup modal edit jika terbuka
+    } catch (err) {
+      console.error('Error deleting booking:', err);
+      setAlertMessage('Gagal menghapus booking: ' + (err.response?.data?.message || err.message));
+      setAlertOpen(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredBookings = useMemo(() => {
+    let currentBookings = bookings;
+
+    if (filterStatus !== 'all') {
+      currentBookings = currentBookings.filter((booking) => booking.status === filterStatus);
+    }
+
+    if (searchTerm) {
+      const lowerCaseSearchTerm = searchTerm.toLowerCase();
+      currentBookings = currentBookings.filter(
+        (booking) =>
+          booking.guestName.toLowerCase().includes(lowerCaseSearchTerm) ||
+          booking.guestEmail.toLowerCase().includes(lowerCaseSearchTerm) ||
+          booking.roomType.toLowerCase().includes(lowerCaseSearchTerm) ||
+          booking.roomNumber.toLowerCase().includes(lowerCaseSearchTerm)
+      );
+    }
+    return currentBookings;
+  }, [bookings, filterStatus, searchTerm]);
+
+  const columns = useMemo(
+    () => [
+      { field: 'guestName', headerName: 'Guest Name', width: 200 },
+      { field: 'guestEmail', headerName: 'Email', width: 200 },
+      { field: 'roomType', headerName: 'Room Type', width: 120 },
+      { field: 'roomNumber', headerName: 'Room No.', width: 100 },
+      { field: 'arrival', headerName: 'Check-in', width: 130 },
+      { field: 'departure', headerName: 'Check-out', width: 130 },
+      {
+        field: 'totalPayment',
+        headerName: 'Total Price',
+        width: 130,
+        valueFormatter: (params) => `Rp ${Number(params.value).toLocaleString('id-ID')}`
+      },
+      {
+        field: 'paid_amount',
+        headerName: 'Paid Amount',
+        width: 130,
+        valueFormatter: (params) => `Rp ${Number(params.value).toLocaleString('id-ID')}`
+      },
+      {
+        field: 'remaining_payment',
+        headerName: 'Remaining',
+        width: 130,
+        // *** Ini baris 182, sudah defensif. Masalahnya jika params.row itu sendiri undefined ***
+        valueGetter: (params) => {
+          if (!params || !params.row) return 0;
+          return (params.row.totalPayment ?? 0) - (params.row.paid_amount ?? 0);
+        },
+
+        valueFormatter: (params) => `Rp ${Number(params.value).toLocaleString('id-ID')}`
+      },
+      {
+        field: 'status',
+        headerName: 'Status',
+        width: 120,
+        renderCell: (params) => {
+          switch (params.value) {
+            case 'confirm':
+            case 'confirmed':
+              return <Chip label="Confirmed" color="success" icon={<CheckCircleIcon />} />;
+            case 'onhold':
+            case 'pending':
+              return <Chip label="Pending" color="warning" icon={<ScheduleIcon />} />;
+            case 'cancel':
+            case 'cancelled':
+              return <Chip label="Cancelled" color="error" icon={<CancelIcon />} />;
+            default:
+              return <Chip label="Unknown" />;
+          }
+        }
+      },
+      {
+        field: 'actions',
+        headerName: 'Actions',
+        width: 150,
+        sortable: false,
+        filterable: false,
+        renderCell: (params) => (
+          <Stack direction="row" spacing={1}>
+            <Tooltip title="View Details">
+              <IconButton onClick={() => handleView(params.row)} size="small">
+                <ViewIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Edit Booking">
+              <IconButton onClick={() => handleEdit(params.row)} size="small">
+                <EditIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Delete Booking">
+              <IconButton onClick={() => confirmDelete(params.row)} size="small">
+                <DeleteIcon />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        )
+      }
+    ],
+    []
+  );
+
   const handleView = (booking) => {
     setSelectedBooking(booking);
     setViewDialogOpen(true);
   };
 
-  const handleEdit = (booking) => {
-    setSelectedBooking(booking);
-    setEditModalOpen(true);
-  };
-
-  const handleDelete = (booking) => {
+  const confirmDelete = (booking) => {
     setBookingToDelete(booking);
     setDeleteConfirmOpen(true);
   };
 
-  // Tambahkan fungsi untuk handle save dan delete:
-  const handleSaveBooking = async (updatedBooking) => {
-    try {
-      setLoading(true);
-
-      // Update state bookings
-      setBookings((prev) => prev.map((b) => (b.id === updatedBooking.id ? updatedBooking : b)));
-
-      setAlertMessage('Booking updated successfully');
-      setAlertOpen(true);
-      setEditModalOpen(false);
-    } catch (error) {
-      console.error('Failed to update booking:', error);
-      setAlertMessage('Failed to update booking');
-      setAlertOpen(true);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleConfirmDelete = async () => {
-    try {
-      setLoading(true);
-
-      // Hapus dari API
-      await axios.delete(`http://localhost:8000/api/reservations/${bookingToDelete.id}`);
-
-      // Update state
-      setBookings((prev) => prev.filter((b) => b.id !== bookingToDelete.id));
-
-      setAlertMessage('Booking deleted successfully');
-      setAlertOpen(true);
-    } catch (error) {
-      console.error('Failed to delete booking:', error);
-      setAlertMessage('Failed to delete booking');
-      setAlertOpen(true);
-    } finally {
-      setLoading(false);
-      setDeleteConfirmOpen(false);
-      setBookingToDelete(null);
-    }
-  };
-
-  const handleAddNew = () => {
-    setAlertMessage('Add new booking clicked');
-    setAlertOpen(true);
-  };
-
-  const handleRefresh = () => {
-    simulateLoading();
-    setAlertMessage('Data refreshed successfully');
-    setAlertOpen(true);
-  };
-
-  // Custom toolbar with improved layout
-  const CustomToolbar = () => {
+  function CustomToolbar() {
     return (
       <GridToolbarContainer>
-        <Box sx={{ p: 2, width: '100%' }}>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'flex-start', md: 'center' }}>
+        <Stack direction="row" justifyContent="space-between" width="100%" alignItems="center" p={1}>
+          <Stack direction="row" spacing={1}>
+            <GridToolbarColumnsButton />
+            <GridToolbarFilterButton />
+            <GridToolbarDensitySelector />
+            <GridToolbarExport />
+          </Stack>
+          <Box>
             <TextField
+              variant="outlined"
               size="small"
-              placeholder="Search bookings..."
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
+              placeholder="Search..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
                     <SearchIcon />
                   </InputAdornment>
-                ),
-                sx: {
-                  borderRadius: 2,
-                  backgroundColor: theme.palette.background.paper,
-                  width: { xs: '100%', md: 280 }
-                }
+                )
               }}
-              sx={{ minWidth: { xs: '100%', md: 280 } }}
+              sx={{ mr: 1 }}
             />
-
-            <FormControl size="small" sx={{ minWidth: 150 }}>
+            <FormControl sx={{ minWidth: 120 }} size="small">
               <InputLabel>Status</InputLabel>
-              <Select value={statusFilter} label="Status" onChange={(e) => setStatusFilter(e.target.value)} sx={{ borderRadius: 2 }}>
-                <MenuItem value="all">All Status</MenuItem>
-                <MenuItem value="confirmed">Confirmed</MenuItem>
-                <MenuItem value="pending">Pending</MenuItem>
-                <MenuItem value="cancelled">Cancelled</MenuItem>
+              <Select value={filterStatus} label="Status" onChange={(e) => setFilterStatus(e.target.value)}>
+                <MenuItem value="all">All</MenuItem>
+                <MenuItem value="confirm">Confirmed</MenuItem>
+                <MenuItem value="onhold">Pending</MenuItem>
+                <MenuItem value="cancel">Cancelled</MenuItem>
               </Select>
             </FormControl>
-
-            <Box sx={{ display: 'flex', gap: 1, ml: { xs: 0, md: 'auto' } }}>
-              <Tooltip title="Refresh data">
-                <IconButton onClick={handleRefresh} size="small">
-                  <RefreshIcon />
-                </IconButton>
-              </Tooltip>
-
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={handleAddNew}
-                size="small"
-                sx={{
-                  borderRadius: 2,
-                  textTransform: 'none',
-                  boxShadow: 'none',
-                  '&:hover': { boxShadow: 'none' }
-                }}
-              >
-                New Booking
-              </Button>
-
-              <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 0.5 }}>
-                <GridToolbarColumnsButton />
-                <GridToolbarFilterButton />
-                <GridToolbarDensitySelector />
-                <GridToolbarExport />
-              </Box>
-            </Box>
-          </Stack>
-        </Box>
+          </Box>
+        </Stack>
       </GridToolbarContainer>
     );
-  };
+  }
 
-  // Define columns with improved styling
-  const columns = [
-    {
-      field: 'id',
-      headerName: 'Booking ID',
-      minWidth: 90,
-      width: 110,
-      align: 'center',
-      headerAlign: 'center',
-      renderCell: (params) => (
-        <Box
-          sx={{
-            width: '100%',
-            height: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
+  return (
+    // Mengganti Paper dengan MainCard untuk konsistensi desain
+    <MainCard title="Booking Management">
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
+      <Box sx={{ height: 600, width: '100%' }}>
+        <DataGrid
+          rows={filteredBookings}
+          columns={columns}
+          pageSizeOptions={[5, 10, 20]}
+          initialState={{
+            pagination: {
+              paginationModel: { pageSize: 10, page: 0 }
+            }
           }}
-        >
-          <Typography
-            variant="body2"
-            fontWeight="bold"
-            color="primary"
-            noWrap
-            sx={{
-              textAlign: 'center',
-              letterSpacing: 1
-            }}
-          >
-            {params.value}
-          </Typography>
-        </Box>
-      )
-    },
-    {
-      field: 'source',
-      headerName: 'Source',
-      minWidth: 90,
-      width: 120,
-      align: 'center',
-      headerAlign: 'center',
-      renderCell: (params) => (
-        <Box
-          sx={{
-            width: '100%',
-            height: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
+          loading={loading}
+          slots={{
+            toolbar: CustomToolbar,
+            loadingOverlay: LinearProgress
           }}
-        >
-          <Chip label={params.value} size="small" variant="outlined" color="primary" sx={{ borderRadius: 1 }} />
-        </Box>
-      )
-    },
-    {
-      field: 'guest',
-      headerName: 'Guest',
-      minWidth: 220,
-      flex: 1,
-      renderCell: (params) => (
-        <Box
+          disableRowSelectionOnClick
+          autoHeight={isMobile}
+        />
+      </Box>
+
+      {/* Edit Booking Modal (menggunakan EditBookingManagementModal yang sudah dimodifikasi) */}
+      {bookingToEdit && (
+        <EditBookingManagementModal
+          open={editModalOpen}
+          onClose={() => setEditModalOpen(false)}
+          booking={bookingToEdit}
+          onSave={handleSaveEdit}
+          onDelete={handleDeleteBooking}
+          onRefreshBookings={fetchBookings} // Meneruskan fungsi refresh data
+        />
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Konfirmasi Penghapusan</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Anda yakin ingin menghapus booking atas nama **{bookingToDelete ? bookingToDelete.guestName : ''}**?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirmOpen(false)}>Batal</Button>
+          <Button onClick={() => handleDeleteBooking(bookingToDelete.id)} color="error">
+            Hapus
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* View Details Dialog */}
+      <Dialog
+        open={viewDialogOpen}
+        onClose={() => setViewDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            overflow: 'hidden'
+          }
+        }}
+      >
+        <DialogTitle
           sx={{
-            width: '100%',
-            height: '100%',
+            bgcolor: 'primary.main',
+            color: 'common.white',
+            py: 2,
             display: 'flex',
             alignItems: 'center',
-            gap: 1.5,
-            py: 1
+            gap: 2
           }}
         >
           <Avatar
             sx={{
-              width: 32,
-              height: 32,
-              bgcolor: theme.palette.primary.main,
-              fontSize: 14,
-              fontWeight: 500
+              bgcolor: 'primary.light',
+              width: 40,
+              height: 40
             }}
           >
-            {params.row.guestName.charAt(0).toUpperCase()}
+            {selectedBooking?.guestName?.charAt(0) || 'B'}
           </Avatar>
-          <Box sx={{ overflow: 'hidden' }}>
-            <Typography variant="body2" fontWeight={600} noWrap>
-              {params.row.guestName}
+          <Box>
+            <Typography variant="h6" fontWeight={600}>
+              {selectedBooking?.guestName || 'Booking Details'}
             </Typography>
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              noWrap
-              sx={{
-                display: 'block',
-                textOverflow: 'ellipsis'
-              }}
-            >
-              {params.row.guestEmail}
+            <Typography variant="body2" sx={{ opacity: 0.9 }}>
+              {selectedBooking?.guestEmail || ''}
             </Typography>
           </Box>
-        </Box>
-      )
-    },
-    {
-      field: 'dates',
-      headerName: 'Dates',
-      minWidth: 180,
-      flex: 1,
-      renderCell: (params) => (
-        <Box
-          sx={{
-            width: '100%',
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            py: 1
-          }}
-        >
-          <Typography variant="body2">
-            <Box component="span" fontWeight={600}>
-              Arr:
-            </Box>{' '}
-            {new Date(params.row.arrival).toLocaleDateString()}
-          </Typography>
-          <Typography variant="body2">
-            <Box component="span" fontWeight={600}>
-              Dep:
-            </Box>{' '}
-            {new Date(params.row.departure).toLocaleDateString()}
-          </Typography>
-        </Box>
-      )
-    },
-    {
-      field: 'payment',
-      headerName: 'Payment',
-      minWidth: 170,
-      flex: 0.9,
-      renderCell: (params) => (
-        <Box
-          sx={{
-            width: '100%',
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            py: 1
-          }}
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <PaymentMethodIcon method={params.row.paymentMethod} />
-            <Typography variant="body2" fontWeight={700} noWrap>
-              {params.row.totalPayment.toLocaleString('en-US', {
-                style: 'currency',
-                currency: 'USD',
-                minimumFractionDigits: 0
-              })}
-            </Typography>
-          </Box>
-          <Typography variant="caption" color="text.secondary" textTransform="capitalize" noWrap>
-            {params.row.paymentMethod.replace('_', ' ')}
-          </Typography>
-        </Box>
-      )
-    },
-    {
-      field: 'status',
-      headerName: 'Status',
-      minWidth: 120,
-      flex: 0.7,
-      align: 'center',
-      headerAlign: 'center',
-      renderCell: (params) => (
-        <Box
-          sx={{
-            width: '100%',
-            height: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}
-        >
-          <StatusChip status={params.value} />
-        </Box>
-      )
-    },
-    {
-      field: 'actions',
-      headerName: 'Actions',
-      width: 120,
-      sortable: false,
-      align: 'center',
-      headerAlign: 'center',
-      renderCell: (params) => (
-        <Box
-          sx={{
-            width: '100%',
-            height: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 0.5
-          }}
-        >
-          <Tooltip title="View details">
-            <IconButton
-              size="small"
-              onClick={() => handleView(params.row)}
-              sx={{
-                color: theme.palette.info.main,
-                '&:hover': { backgroundColor: theme.palette.info.lighter }
-              }}
-            >
-              <ViewIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Edit booking">
-            <IconButton
-              size="small"
-              onClick={() => handleEdit(params.row)}
-              sx={{
-                color: theme.palette.warning.main,
-                '&:hover': { backgroundColor: theme.palette.warning.lighter }
-              }}
-            >
-              <EditIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Delete booking">
-            <IconButton
-              size="small"
-              onClick={() => handleDelete(params.row)}
-              sx={{
-                color: theme.palette.error.main,
-                '&:hover': { backgroundColor: theme.palette.error.lighter }
-              }}
-            >
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Box>
-      )
-    }
-  ];
-
-  return (
-    <Paper
-      elevation={0}
-      sx={{
-        width: '100%',
-        height: '100%',
-        overflow: 'hidden',
-        borderRadius: 3,
-        border: `1px solid ${theme.palette.divider}`
-      }}
-    >
-      <Box sx={{ p: 3, borderBottom: `1px solid ${theme.palette.divider}` }}>
-        <Typography variant="h5" fontWeight={700} color="text.primary">
-          Booking Management
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Manage and track all reservations and guest information
-        </Typography>
-      </Box>
-
-      <DataGrid
-        rows={filteredBookings}
-        columns={columns}
-        pageSize={pageSize}
-        onPageSizeChange={(newPageSize) => setPageSize(newPageSize)}
-        rowsPerPageOptions={[5, 10, 25]}
-        pagination
-        disableSelectionOnClick
-        loading={loading}
-        components={{
-          Toolbar: CustomToolbar,
-          LoadingOverlay: LinearProgress
-        }}
-        sx={{
-          border: 0,
-          '& .MuiDataGrid-cell': {
-            borderBottom: `1px solid ${theme.palette.divider}`
-          },
-          '& .MuiDataGrid-columnHeaders': {
-            backgroundColor: theme.palette.grey[50],
-            borderBottom: `2px solid ${theme.palette.divider}`
-          },
-          '& .MuiDataGrid-row:hover': {
-            backgroundColor: theme.palette.action.hover
-          },
-          '& .MuiDataGrid-footerContainer': {
-            borderTop: `2px solid ${theme.palette.divider}`,
-            backgroundColor: theme.palette.grey[50]
-          },
-          '& .MuiDataGrid-toolbarContainer': {
-            padding: 0
-          },
-          '& .MuiDataGrid-virtualScroller': {
-            minHeight: '300px'
-          }
-        }}
-      />
-
-      {/* Booking Details Dialog */}
-      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle
-          sx={{
-            backgroundColor: theme.palette.primary.main,
-            color: theme.palette.common.white,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1
-          }}
-        >
-          <ViewIcon />
-          Booking Details
         </DialogTitle>
-        <DialogContent sx={{ p: 3 }}>
+
+        <DialogContent dividers sx={{ p: 0 }}>
           {selectedBooking && (
-            <Box sx={{ mt: 2 }}>
-              <Stack spacing={2}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography variant="subtitle1" fontWeight={600}>
-                    Booking ID:
-                  </Typography>
-                  <Typography variant="body1">{selectedBooking.id}</Typography>
-                </Box>
+            <Box>
+              {/* Main Details Card */}
+              <Card
+                variant="outlined"
+                sx={{
+                  borderRadius: 0,
+                  borderLeft: 0,
+                  borderRight: 0,
+                  boxShadow: 'none'
+                }}
+              >
+                <CardContent sx={{ p: 3 }}>
+                  <Grid container spacing={3}>
+                    {/* Room Information */}
+                    <Grid item xs={12} sm={6}>
+                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                        ROOM INFORMATION
+                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5 }}>
+                        <Box
+                          sx={{
+                            width: 40,
+                            height: 40,
+                            bgcolor: 'primary.light',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderRadius: 1
+                          }}
+                        >
+                          <DoorFrontIcon color="primary" />
+                        </Box>
+                        <Box>
+                          <Typography variant="body1" fontWeight={500}>
+                            {selectedBooking.roomType}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Room #{selectedBooking.roomNumber}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </Grid>
 
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography variant="subtitle1" fontWeight={600}>
-                    Guest:
-                  </Typography>
-                  <Box sx={{ textAlign: 'right' }}>
-                    <Typography variant="body1">{selectedBooking.guestName}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {selectedBooking.guestEmail}
-                    </Typography>
-                  </Box>
-                </Box>
+                    {/* Stay Duration */}
+                    <Grid item xs={12} sm={6}>
+                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                        STAY DURATION
+                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Box
+                          sx={{
+                            width: 40,
+                            height: 40,
+                            bgcolor: 'secondary.light',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderRadius: 1
+                          }}
+                        >
+                          <CalendarMonthIcon color="secondary" />
+                        </Box>
+                        <Box>
+                          <Typography variant="body1" fontWeight={500}>
+                            {format(new Date(selectedBooking.arrival), 'MMM dd, yyyy')} -{' '}
+                            {format(new Date(selectedBooking.departure), 'MMM dd, yyyy')}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {differenceInDays(new Date(selectedBooking.departure), new Date(selectedBooking.arrival))} nights
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </Grid>
 
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography variant="subtitle1" fontWeight={600}>
-                    Room:
-                  </Typography>
-                  <Box sx={{ textAlign: 'right' }}>
-                    <Typography variant="body1">{selectedBooking.roomType}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Room {selectedBooking.roomNumber}
-                    </Typography>
-                  </Box>
-                </Box>
+                    {/* Payment Information */}
+                    <Grid item xs={12}>
+                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                        PAYMENT INFORMATION
+                      </Typography>
+                      <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                        <Stack spacing={1.5}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <Typography variant="body1">Total Price:</Typography>
+                            <Typography variant="body1" fontWeight={600}>
+                              Rp {Number(selectedBooking.totalPayment).toLocaleString('id-ID')}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <Typography variant="body1">Paid Amount:</Typography>
+                            <Typography variant="body1" color="success.main">
+                              Rp {Number(selectedBooking.paid_amount).toLocaleString('id-ID')}
+                            </Typography>
+                          </Box>
+                          <Divider />
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <Typography variant="body1" fontWeight={500}>
+                              Remaining:
+                            </Typography>
+                            <Typography
+                              variant="body1"
+                              fontWeight={600}
+                              color={selectedBooking.totalPayment - selectedBooking.paid_amount > 0 ? 'error.main' : 'success.main'}
+                            >
+                              Rp {Number(selectedBooking.totalPayment - selectedBooking.paid_amount).toLocaleString('id-ID')}
+                            </Typography>
+                          </Box>
+                        </Stack>
+                      </Paper>
+                    </Grid>
 
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography variant="subtitle1" fontWeight={600}>
-                    Dates:
-                  </Typography>
-                  <Box sx={{ textAlign: 'right' }}>
-                    <Typography variant="body1">
-                      {new Date(selectedBooking.arrival).toLocaleDateString()} - {new Date(selectedBooking.departure).toLocaleDateString()}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {Math.floor((new Date(selectedBooking.departure) - new Date(selectedBooking.arrival)) / (1000 * 60 * 60 * 24))} nights
-                    </Typography>
-                  </Box>
-                </Box>
+                    {/* Status */}
+                    <Grid item xs={12}>
+                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                        BOOKING STATUS
+                      </Typography>
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 1.5
+                        }}
+                      >
+                        {selectedBooking.status === 'confirmed' && (
+                          <Chip
+                            label="Confirmed"
+                            color="success"
+                            icon={<CheckCircleIcon />}
+                            sx={{
+                              px: 1,
+                              py: 1.5,
+                              fontSize: '0.875rem'
+                            }}
+                          />
+                        )}
+                        {selectedBooking.status === 'pending' && (
+                          <Chip
+                            label="Pending Payment"
+                            color="warning"
+                            icon={<ScheduleIcon />}
+                            sx={{
+                              px: 1,
+                              py: 1.5,
+                              fontSize: '0.875rem'
+                            }}
+                          />
+                        )}
+                        {selectedBooking.status === 'cancelled' && (
+                          <Chip
+                            label="Cancelled"
+                            color="error"
+                            icon={<CancelIcon />}
+                            sx={{
+                              px: 1,
+                              py: 1.5,
+                              fontSize: '0.875rem'
+                            }}
+                          />
+                        )}
+                        {!['confirmed', 'pending', 'cancelled'].includes(selectedBooking.status) && (
+                          <Chip
+                            label="Unknown"
+                            color="default"
+                            sx={{
+                              px: 1,
+                              py: 1.5,
+                              fontSize: '0.875rem'
+                            }}
+                          />
+                        )}
+                      </Box>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
 
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography variant="subtitle1" fontWeight={600}>
-                    Payment:
-                  </Typography>
-                  <Box sx={{ textAlign: 'right' }}>
-                    <Typography variant="body1">${selectedBooking.totalPayment.toFixed(2)}</Typography>
-                    <Typography variant="caption" color="text.secondary" textTransform="capitalize">
-                      {selectedBooking.paymentMethod.replace('_', ' ')}
-                    </Typography>
-                  </Box>
-                </Box>
-
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography variant="subtitle1" fontWeight={600}>
-                    Status:
-                  </Typography>
-                  <Box>
-                    <StatusChip status={selectedBooking.status} />
-                  </Box>
-                </Box>
-
-                <Box>
-                  <Typography variant="subtitle1" fontWeight={600}>
-                    Notes:
-                  </Typography>
-                  <Typography variant="body2" sx={{ mt: 1, p: 1.5, backgroundColor: theme.palette.grey[50], borderRadius: 1 }}>
-                    {selectedBooking.notes || 'No special requests'}
-                  </Typography>
-                </Box>
-              </Stack>
+              {/* Comments Section */}
+              <Box sx={{ p: 3, pt: 0 }}>
+                <BookingComments bookingId={selectedBooking.id} readOnly />
+              </Box>
             </Box>
           )}
         </DialogContent>
-        <DialogActions sx={{ p: 2, borderTop: `1px solid ${theme.palette.divider}` }}>
-          <Button onClick={() => setViewDialogOpen(false)} variant="outlined" sx={{ borderRadius: 2 }}>
+
+        <DialogActions
+          sx={{
+            p: 2,
+            borderTop: `1px solid ${theme.palette.divider}`,
+            bgcolor: 'grey.50'
+          }}
+        >
+          <Button
+            onClick={() => setViewDialogOpen(false)}
+            variant="outlined"
+            sx={{
+              borderRadius: 2,
+              px: 3,
+              textTransform: 'none'
+            }}
+          >
             Close
           </Button>
           <Button
@@ -749,7 +619,11 @@ const BookingManagement = () => {
               setViewDialogOpen(false);
             }}
             variant="contained"
-            sx={{ borderRadius: 2 }}
+            sx={{
+              borderRadius: 2,
+              px: 3,
+              textTransform: 'none'
+            }}
             startIcon={<EditIcon />}
           >
             Edit Booking
@@ -774,7 +648,7 @@ const BookingManagement = () => {
           </Button>
         </DialogActions>
       </Dialog>
-    </Paper>
+    </MainCard>
   );
 };
 

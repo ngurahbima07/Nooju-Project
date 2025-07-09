@@ -118,10 +118,18 @@ export default function BookingChart() {
       setIsLoading((prev) => ({ ...prev, events: true }));
 
       const response = await axios.get('http://localhost:8000/api/reservations');
+      // console.log('🛎️ Total data dari API:', response.data.length);
 
       // TAMBAHKAN filter & mapping seperti sebelumnya!
       const filtered = response.data.filter((item) => item.status === 'confirm' || item.status === 'onhold');
+      // console.log('✅ Booking yang dihitung:', filtered.length);
 
+      filtered.forEach((item) => {
+        const checkin = new Date(item.check_in_date);
+        const checkout = new Date(item.check_out_date);
+        const nights = (checkout - checkin) / (1000 * 60 * 60 * 24);
+        // console.log(`🧾 ${item.first_name} ${item.last_name}: ${item.check_in_date} → ${item.check_out_date} (${nights} malam)`);
+      });
       const formatted = filtered.map((item) => {
         const isUnassigned = !item.sub_room || item.sub_room === 'UNASSIGNED';
         const resourceId = isUnassigned ? 'UNASSIGNED' : `${item.room_type}-${item.sub_room}`;
@@ -235,6 +243,9 @@ export default function BookingChart() {
 
   // Calculate room status
   useEffect(() => {
+    // 🛡️ Cegah perhitungan jika data belum siap
+    if (!events.length || !resources.length) return;
+
     const today = new Date();
     const validRooms = resources.filter((r) => r.id !== 'UNASSIGNED');
     const validRoomIds = new Set(validRooms.map((r) => r.id));
@@ -293,9 +304,6 @@ export default function BookingChart() {
       const rawStart = new Date(event.start);
       const rawEnd = new Date(event.end);
 
-      // Kurangi 1 hari dari checkout
-      rawEnd.setDate(rawEnd.getDate() - 1);
-
       // Clamp range ke dalam bulan yang dipilih
       const start = rawStart < firstDay ? firstDay : rawStart;
       const end = rawEnd > lastDay ? lastDay : rawEnd;
@@ -309,6 +317,13 @@ export default function BookingChart() {
 
     const occupancyPercentage = Math.round((occupiedNights / totalPossibleNights) * 100);
     setMonthlyOccupancy(occupancyPercentage);
+
+    // // 🔍 DEBUG LOG UNTUK MEMASTIKAN OCCUPANCY
+    // console.log('🎯 Room Count:', validRooms.length);
+    // console.log('📆 Days in Month:', daysInMonth);
+    // console.log('🛏️ Total Possible Nights:', totalPossibleNights);
+    // console.log('✅ Occupied Nights:', occupiedNights);
+    // console.log('📈 Occupancy %:', occupancyPercentage);
   }, [events, resources, filterDate]);
 
   const handleFilterDateChange = (e) => {

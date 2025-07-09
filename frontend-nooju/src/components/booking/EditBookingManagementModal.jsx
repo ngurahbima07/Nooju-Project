@@ -1,4 +1,4 @@
-// components/EditBookingModal.jsx
+// components/EditBookingManagementModal.jsx
 import React, { useState, useEffect } from 'react';
 import {
   Dialog,
@@ -15,13 +15,26 @@ import {
   Typography,
   Stack,
   Chip,
-  Alert
+  Alert,
+  Tabs,
+  Tab,
+  Grid
 } from '@mui/material';
-import { CheckCircle as CheckCircleIcon, Schedule as ScheduleIcon, Cancel as CancelIcon } from '@mui/icons-material';
+import {
+  CheckCircle as CheckCircleIcon,
+  Schedule as ScheduleIcon,
+  Cancel as CancelIcon,
+  Payment as PaymentIcon,
+  Comment as CommentIcon
+} from '@mui/icons-material';
 import axios from 'axios';
+import { format } from 'date-fns';
+import AddPaymentContent from './AddPaymentContent';
+import BookingComments from './BookingComments';
 
-const EditBookingManagementModal = ({ open, onClose, booking, onSave, onDelete }) => {
+const EditBookingManagementModal = ({ open, onClose, booking, onSave, onDelete, onRefreshBookings }) => {
   const [formData, setFormData] = useState({
+    id: '',
     firstName: '',
     lastName: '',
     email: '',
@@ -31,42 +44,42 @@ const EditBookingManagementModal = ({ open, onClose, booking, onSave, onDelete }
     checkInDate: '',
     checkOutDate: '',
     totalPrice: 0,
-    notes: ''
+    paidAmount: 0
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [tabValue, setTabValue] = useState('details');
 
   useEffect(() => {
     if (booking) {
       setFormData({
+        id: booking.id,
         firstName: booking.guestName.split(' ')[0] || '',
         lastName: booking.guestName.split(' ')[1] || '',
         email: booking.guestEmail || '',
         roomType: booking.roomType || '',
         subRoom: booking.roomNumber || '',
         status: booking.status || 'confirmed',
-        checkInDate: booking.arrival || '',
-        checkOutDate: booking.departure || '',
+        checkInDate: booking.arrival ? format(new Date(booking.arrival), 'yyyy-MM-dd') : '',
+        checkOutDate: booking.departure ? format(new Date(booking.departure), 'yyyy-MM-dd') : '',
         totalPrice: booking.totalPayment || 0,
-        notes: booking.notes || ''
+        paidAmount: booking.paid_amount || 0
       });
+      setError(null);
+      setTabValue('details');
     }
   }, [booking]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value
-    }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setError(null);
-
-      const updatedData = {
+      const payload = {
         first_name: formData.firstName,
         last_name: formData.lastName,
         email: formData.email,
@@ -76,149 +89,155 @@ const EditBookingManagementModal = ({ open, onClose, booking, onSave, onDelete }
         check_in_date: formData.checkInDate,
         check_out_date: formData.checkOutDate,
         total_price: formData.totalPrice,
-        notes: formData.notes
+        paid_amount: formData.paidAmount
       };
 
-      await axios.put(`http://localhost:8000/api/reservations/${booking.id}`, updatedData);
-
-      onSave({
-        ...booking,
-        ...updatedData,
-        guestName: `${formData.firstName} ${formData.lastName}`,
-        guestEmail: formData.email,
-        roomType: formData.roomType,
-        roomNumber: formData.subRoom,
-        status: formData.status,
-        arrival: formData.checkInDate,
-        departure: formData.checkOutDate,
-        totalPayment: formData.totalPrice,
-        notes: formData.notes
-      });
-
+      await axios.put(`http://localhost:8000/api/reservations/${formData.id}`, payload);
+      await onRefreshBookings(); // Tambahkan ini
+      onSave(formData.id);
       onClose();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to update booking');
+      console.error('Error updating booking:', err);
+      setError(err.response?.data?.message || 'Gagal memperbarui booking.');
     } finally {
       setLoading(false);
     }
   };
 
-  const StatusChip = ({ status }) => {
-    const config = {
-      confirmed: {
-        color: 'success',
-        icon: <CheckCircleIcon fontSize="small" />,
-        label: 'Confirmed'
-      },
-      pending: {
-        color: 'warning',
-        icon: <ScheduleIcon fontSize="small" />,
-        label: 'Pending'
-      },
-      cancelled: {
-        color: 'error',
-        icon: <CancelIcon fontSize="small" />,
-        label: 'Cancelled'
-      }
-    }[status] || {
-      color: 'default',
-      icon: <ScheduleIcon fontSize="small" />,
-      label: status
-    };
+  const getStatusChip = (status) => {
+    switch (status) {
+      case 'confirm':
+        return <Chip label="Confirmed" color="success" icon={<CheckCircleIcon />} />;
+      case 'onhold':
+        return <Chip label="On Hold" color="warning" icon={<ScheduleIcon />} />;
+      case 'cancel':
+        return <Chip label="Cancelled" color="error" icon={<CancelIcon />} />;
+      default:
+        return <Chip label="Unknown" />;
+    }
+  };
 
-    return <Chip icon={config.icon} label={config.label} color={config.color} size="small" variant="outlined" />;
+  const handleTabChange = (event, newValue) => {
+    setTabValue(newValue);
   };
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>Edit Booking</DialogTitle>
-      <DialogContent>
+      <DialogTitle>
+        Edit Booking: {formData.firstName} {formData.lastName}
+      </DialogTitle>
+      <DialogContent dividers>
+        <Tabs value={tabValue} onChange={handleTabChange} aria-label="booking sections" sx={{ mb: 2 }}>
+          <Tab label="Detail Booking" value="details" />
+          <Tab label="Pembayaran" value="payments" icon={<PaymentIcon />} iconPosition="start" />
+          <Tab label="Komentar" value="comments" icon={<CommentIcon />} iconPosition="start" />
+        </Tabs>
+
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
           </Alert>
         )}
 
-        <Box sx={{ mt: 2 }}>
-          <Stack spacing={3}>
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <TextField fullWidth label="First Name" name="firstName" value={formData.firstName} onChange={handleChange} />
-              <TextField fullWidth label="Last Name" name="lastName" value={formData.lastName} onChange={handleChange} />
+        {tabValue === 'details' && (
+          <Stack spacing={2}>
+            <Box display="flex" justifyContent="space-between" alignItems="center">
+              <Typography variant="subtitle1">Status Booking: {getStatusChip(formData.status)}</Typography>
+              <Typography variant="h6">Sisa Bayar: Rp {(formData.totalPrice - formData.paidAmount).toLocaleString('id-ID')}</Typography>
             </Box>
 
-            <TextField fullWidth label="Email" name="email" type="email" value={formData.email} onChange={handleChange} />
-
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <FormControl fullWidth>
-                <InputLabel>Room Type</InputLabel>
-                <Select name="roomType" value={formData.roomType} onChange={handleChange} label="Room Type">
+            <Grid container spacing={2}>
+              <Grid item xs={6}>
+                <TextField fullWidth label="First Name" name="firstName" value={formData.firstName} onChange={handleChange} />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField fullWidth label="Last Name" name="lastName" value={formData.lastName} onChange={handleChange} />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField fullWidth label="Email" name="email" type="email" value={formData.email} onChange={handleChange} />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField select fullWidth label="Room Type" name="roomType" value={formData.roomType} onChange={handleChange}>
                   <MenuItem value="Standard">Standard</MenuItem>
                   <MenuItem value="Superior">Superior</MenuItem>
-                </Select>
-              </FormControl>
-
-              <TextField fullWidth label="Room Number" name="subRoom" value={formData.subRoom} onChange={handleChange} />
-            </Box>
-
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <TextField
-                fullWidth
-                label="Check-in Date"
-                name="checkInDate"
-                type="date"
-                InputLabelProps={{ shrink: true }}
-                value={formData.checkInDate}
-                onChange={handleChange}
-              />
-              <TextField
-                fullWidth
-                label="Check-out Date"
-                name="checkOutDate"
-                type="date"
-                InputLabelProps={{ shrink: true }}
-                value={formData.checkOutDate}
-                onChange={handleChange}
-              />
-            </Box>
-
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <TextField
-                fullWidth
-                label="Total Price"
-                name="totalPrice"
-                type="number"
-                value={formData.totalPrice}
-                onChange={handleChange}
-                InputProps={{
-                  startAdornment: '$'
-                }}
-              />
-
-              <FormControl fullWidth>
-                <InputLabel>Status</InputLabel>
-                <Select name="status" value={formData.status} onChange={handleChange} label="Status">
-                  <MenuItem value="confirmed">Confirmed</MenuItem>
-                  <MenuItem value="pending">Pending</MenuItem>
-                  <MenuItem value="cancelled">Cancelled</MenuItem>
-                </Select>
-              </FormControl>
-            </Box>
-
-            <TextField fullWidth label="Notes" name="notes" multiline rows={3} value={formData.notes} onChange={handleChange} />
+                </TextField>
+              </Grid>
+              <Grid item xs={6}>
+                <TextField fullWidth label="Sub Room" name="subRoom" value={formData.subRoom} onChange={handleChange} />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  fullWidth
+                  label="Check-in Date"
+                  name="checkInDate"
+                  type="date"
+                  InputLabelProps={{ shrink: true }}
+                  value={formData.checkInDate}
+                  onChange={handleChange}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  fullWidth
+                  label="Check-out Date"
+                  name="checkOutDate"
+                  type="date"
+                  InputLabelProps={{ shrink: true }}
+                  value={formData.checkOutDate}
+                  onChange={handleChange}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Total Price"
+                  name="totalPrice"
+                  type="number"
+                  value={formData.totalPrice}
+                  onChange={handleChange}
+                  InputProps={{ startAdornment: 'Rp' }}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <FormControl fullWidth>
+                  <InputLabel>Status</InputLabel>
+                  <Select name="status" value={formData.status} onChange={handleChange} label="Status">
+                    <MenuItem value="confirm">Confirmed</MenuItem>
+                    <MenuItem value="onhold">On Hold</MenuItem>
+                    <MenuItem value="cancel">Cancelled</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+            </Grid>
           </Stack>
-        </Box>
+        )}
+
+        {tabValue === 'payments' && (
+          <Box sx={{ p: 2 }}>
+            <AddPaymentContent bookingId={formData.id} totalPrice={formData.totalPrice} onPaymentAdded={onRefreshBookings} />
+          </Box>
+        )}
+
+        {tabValue === 'comments' && (
+          <Box sx={{ p: 2 }}>
+            <BookingComments bookingId={formData.id} readOnly />
+          </Box>
+        )}
       </DialogContent>
+
       <DialogActions sx={{ p: 2, justifyContent: 'space-between' }}>
-        <Button onClick={() => onDelete(booking.id)} color="error" variant="outlined">
+        <Button onClick={() => onDelete(booking.id)} color="error" variant="outlined" disabled={loading}>
           Delete Booking
         </Button>
         <Box>
-          <Button onClick={onClose} sx={{ mr: 1 }}>
+          <Button onClick={onClose} sx={{ mr: 1 }} disabled={loading}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} variant="contained" disabled={loading}>
-            {loading ? 'Saving...' : 'Save Changes'}
-          </Button>
+          {tabValue === 'details' && (
+            <Button onClick={handleSubmit} variant="contained" disabled={loading}>
+              {loading ? 'Saving...' : 'Save Changes'}
+            </Button>
+          )}
         </Box>
       </DialogActions>
     </Dialog>

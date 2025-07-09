@@ -3,7 +3,7 @@ import { Box, Typography, Paper, TextField, Button, Stack, IconButton } from '@m
 import CloseIcon from '@mui/icons-material/Close';
 import axios from 'axios';
 
-const BookingComments = ({ bookingId, onClose }) => {
+const BookingComments = ({ bookingId, onClose, readOnly }) => {
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState('');
   const [loading, setLoading] = useState(false);
@@ -13,7 +13,6 @@ const BookingComments = ({ bookingId, onClose }) => {
     setLoading(true);
     try {
       const res = await axios.get(`http://localhost:8000/api/comments/by-booking/${bookingId}`);
-
       setComments(res.data);
     } catch (e) {
       console.error('Gagal fetch komentar', e);
@@ -42,7 +41,6 @@ const BookingComments = ({ bookingId, onClose }) => {
     if (!window.confirm('Hapus komentar ini?')) return;
     try {
       await axios.delete(`http://localhost:8000/api/comments/${commentId}`);
-      // Update komentar setelah hapus
       setComments(comments.filter((c) => c.id !== commentId));
     } catch (e) {
       console.error('Gagal menghapus komentar', e);
@@ -53,9 +51,11 @@ const BookingComments = ({ bookingId, onClose }) => {
   return (
     <Box>
       <Box display="flex" alignItems="center" mb={2}>
-        <IconButton onClick={onClose}>
-          <CloseIcon />
-        </IconButton>
+        {onClose && (
+          <IconButton onClick={onClose}>
+            <CloseIcon />
+          </IconButton>
+        )}
         <Typography variant="h6" ml={1}>
           Komentar Reservasi
         </Typography>
@@ -65,22 +65,24 @@ const BookingComments = ({ bookingId, onClose }) => {
         {loading ? (
           <Typography>Loading komentar...</Typography>
         ) : comments.length === 0 ? (
-          <Typography>Belum ada komentar.</Typography>
+          <Typography sx={{ ml: 1 }}>Belum ada komentar.</Typography>
         ) : (
           comments.map((c) => (
             <Paper key={c.id} sx={{ p: 1, mb: 1, position: 'relative' }}>
-              <IconButton
-                size="small"
-                onClick={() => handleDeleteComment(c.id)}
-                sx={{
-                  position: 'absolute',
-                  top: 4,
-                  right: 4,
-                  color: 'error.main'
-                }}
-              >
-                <CloseIcon fontSize="small" />
-              </IconButton>
+              {!readOnly && (
+                <IconButton
+                  size="small"
+                  onClick={() => handleDeleteComment(c.id)}
+                  sx={{
+                    position: 'absolute',
+                    top: 4,
+                    right: 4,
+                    color: 'error.main'
+                  }}
+                >
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              )}
               <Typography variant="caption" color="text.secondary">
                 {new Date(c.created_at).toLocaleString()}
               </Typography>
@@ -90,19 +92,21 @@ const BookingComments = ({ bookingId, onClose }) => {
         )}
       </Box>
 
-      <Stack direction="row" spacing={1}>
-        <TextField
-          fullWidth
-          size="small"
-          placeholder="Tulis komentar baru..."
-          value={newComment}
-          onChange={(e) => setNewComment(e.target.value)}
-          disabled={submitting}
-        />
-        <Button variant="contained" onClick={handleAddComment} disabled={submitting || !newComment.trim()}>
-          Kirim
-        </Button>
-      </Stack>
+      {!readOnly && (
+        <Stack direction="row" spacing={1}>
+          <TextField
+            fullWidth
+            size="small"
+            placeholder="Tulis komentar baru..."
+            value={newComment}
+            onChange={(e) => setNewComment(e.target.value)}
+            disabled={submitting}
+          />
+          <Button variant="contained" onClick={handleAddComment} disabled={submitting || !newComment.trim()}>
+            Kirim
+          </Button>
+        </Stack>
+      )}
     </Box>
   );
 };
