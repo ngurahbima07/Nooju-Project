@@ -118,17 +118,17 @@ export default function BookingChart() {
       setIsLoading((prev) => ({ ...prev, events: true }));
 
       const response = await axios.get('http://localhost:8000/api/reservations');
-      // console.log('🛎️ Total data dari API:', response.data.length);
+      console.log('🛎️ Total data dari API:', response.data.length);
 
       // TAMBAHKAN filter & mapping seperti sebelumnya!
       const filtered = response.data.filter((item) => item.status === 'confirm' || item.status === 'onhold');
-      // console.log('✅ Booking yang dihitung:', filtered.length);
+      console.log('✅ Booking yang dihitung:', filtered.length);
 
       filtered.forEach((item) => {
         const checkin = new Date(item.check_in_date);
         const checkout = new Date(item.check_out_date);
         const nights = (checkout - checkin) / (1000 * 60 * 60 * 24);
-        // console.log(`🧾 ${item.first_name} ${item.last_name}: ${item.check_in_date} → ${item.check_out_date} (${nights} malam)`);
+        console.log(`🧾 ${item.first_name} ${item.last_name}: ${item.check_in_date} → ${item.check_out_date} (${nights} malam)`);
       });
       const formatted = filtered.map((item) => {
         const isUnassigned = !item.sub_room || item.sub_room === 'UNASSIGNED';
@@ -310,7 +310,37 @@ export default function BookingChart() {
 
       const nights = Math.max(0, (end - start) / (1000 * 60 * 60 * 24));
       occupiedNights += nights;
+      console.log(`🛌 ${event.title}: ${event.start} → ${event.end}, dihitung ${nights} malam (clamped)`);
     });
+
+    const handleDownloadInvoice = async (bookingId) => {
+      try {
+        // Panggil API untuk generate/download invoice
+        const response = await axios.get(`http://localhost:8000/api/invoice/${bookingId}`, {
+          responseType: 'blob' // Penting untuk handle file download
+        });
+
+        // Buat URL dari blob response
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+
+        // Buat elemen <a> untuk trigger download
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `invoice-${bookingId}.pdf`); // Atur nama file
+        document.body.appendChild(link);
+        link.click();
+
+        // Bersihkan
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        showSnackbar('Invoice berhasil diunduh', 'success');
+      } catch (error) {
+        console.error('Gagal mengunduh invoice:', error);
+        showSnackbar('Gagal mengunduh invoice', 'error');
+        throw error; // Re-throw error agar bisa ditangkap di EditBookingModal
+      }
+    };
 
     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
     const totalPossibleNights = validRooms.length * daysInMonth;
@@ -318,12 +348,12 @@ export default function BookingChart() {
     const occupancyPercentage = Math.round((occupiedNights / totalPossibleNights) * 100);
     setMonthlyOccupancy(occupancyPercentage);
 
-    // // 🔍 DEBUG LOG UNTUK MEMASTIKAN OCCUPANCY
-    // console.log('🎯 Room Count:', validRooms.length);
-    // console.log('📆 Days in Month:', daysInMonth);
-    // console.log('🛏️ Total Possible Nights:', totalPossibleNights);
-    // console.log('✅ Occupied Nights:', occupiedNights);
-    // console.log('📈 Occupancy %:', occupancyPercentage);
+    // 🔍 DEBUG LOG UNTUK MEMASTIKAN OCCUPANCY
+    console.log('🎯 Room Count:', validRooms.length);
+    console.log('📆 Days in Month:', daysInMonth);
+    console.log('🛏️ Total Possible Nights:', totalPossibleNights);
+    console.log('✅ Occupied Nights:', occupiedNights);
+    console.log('📈 Occupancy %:', occupancyPercentage);
   }, [events, resources, filterDate]);
 
   const handleFilterDateChange = (e) => {

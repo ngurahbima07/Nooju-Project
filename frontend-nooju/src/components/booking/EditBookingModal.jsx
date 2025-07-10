@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react'; // Tambahkan useCallback jika belum ada
 import {
   Modal,
   Box,
@@ -14,7 +14,8 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  CircularProgress // <-- Pastikan ini di-import untuk loading state
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -22,14 +23,15 @@ import {
   Edit as EditIcon,
   Save as SaveIcon,
   Payment as PaymentIcon,
-  Comment as CommentIcon
+  Comment as CommentIcon,
+  GetApp as GetAppIcon // <-- Import icon download
 } from '@mui/icons-material';
 import AddPaymentContent from './AddPaymentContent';
 import BookingComments from './BookingComments';
+import axios from 'axios'; // <-- Import axios untuk panggilan API download
 
 const EditBookingModal = ({
   selectedEvent,
-
   setSelectedEvent,
   editMode,
   setEditMode,
@@ -38,11 +40,12 @@ const EditBookingModal = ({
   setDeleteConfirm,
   calculateTotalPrice,
   checkRoomAvailability,
-  handleAddComment,
-  handleAddPayment,
-  fetchReservations,
+  handleAddComment, // Jika ini fungsi yang dipanggil untuk menambah komentar
+  handleAddPayment, // Jika ini fungsi yang dipanggil untuk menambah pembayaran
+  fetchReservations, // Digunakan untuk refresh data setelah aksi, sangat penting!
   events,
-  onClose
+  onClose, // Ini adalah fungsi untuk menutup modal, dari parent
+  onDownloadInvoice // <-- Prop baru untuk fungsi download
 }) => {
   const [showRates, setShowRates] = useState(false);
   const [dailyRates, setDailyRates] = useState([]);
@@ -58,76 +61,57 @@ const EditBookingModal = ({
     adult: 1,
     children: 0,
     totalPrice: 0,
-    status: 'confirm' // <-- tambahkan
+    status: 'confirm'
   });
 
-  const [activeSection, setActiveSection] = useState('detail'); // 'detail' | 'payment'
-
-  const handleCloseModal = (event, reason = '') => {
-    // Jika modal ditutup pakai ESC atau backdrop (reason kosong atau escapeKeyDown)
-    if (!editMode) {
-      cleanupAndClose();
-      return;
-    }
-
-    const totalPaid = (selectedEvent?.payments || []).reduce((sum, p) => sum + Number(p.payment_amount), 0);
-
-    // Jika sedang edit, tampilkan konfirmasi
-    const confirmClose = window.confirm('Perubahan belum disimpan. Yakin ingin menutup?');
-    if (confirmClose) {
-      cleanupAndClose();
-    }
-  };
-
+  const [activeSection, setActiveSection] = useState('detail'); // 'detail' | 'payment' | 'comment'
   const [showManualTotalDialog, setShowManualTotalDialog] = useState(false);
   const [manualTotalInput, setManualTotalInput] = useState('');
-
   const [hasLoadedRates, setHasLoadedRates] = useState(false);
+  const [isSaving, setIsSaving] = useState(false); // State untuk loading tombol Save
+  const [isDownloading, setIsDownloading] = useState(false); // <-- State untuk loading tombol download
 
-  const cleanupAndClose = () => {
+  // Menggunakan useCallback untuk handleCloseModal agar tidak berubah setiap render jika tidak ada dependensi yang berubah
+  const handleCloseModal = useCallback(
+    (event, reason = '') => {
+      // Jika modal ditutup pakai ESC atau backdrop (reason kosong atau escapeKeyDown)
+      // atau jika tidak dalam mode edit (hanya view), langsung tutup
+      if (!editMode || reason === 'escapeKeyDown' || reason === 'backdropClick') {
+        cleanupAndClose();
+        return;
+      }
+
+      // Jika sedang edit dan ada perubahan (perlu mekanisme deteksi perubahan yang lebih baik)
+      // Untuk saat ini, kita bisa asumsikan jika dalam editMode, selalu tanyakan konfirmasi
+      const confirmClose = window.confirm('Perubahan belum disimpan. Yakin ingin menutup?');
+      if (confirmClose) {
+        cleanupAndClose();
+      }
+    },
+    [editMode, onClose, setSelectedEvent, setEditMode]
+  ); // Tambahkan onClose, setSelectedEvent, setEditMode sebagai dependensi
+
+  const cleanupAndClose = useCallback(() => {
     setShowRates(false);
-    setDailyRates([]); // ✅ reset harga harian
-    setEditMode(false); // reset edit mode juga
-    setActiveSection('detail'); // <-- tambahkan ini untuk reset
-    onClose(); // ini harus setSelectedEvent(null) di parent
-  };
+    setDailyRates([]);
+    setEditMode(false);
+    setActiveSection('detail');
+    if (setSelectedEvent) {
+      // Pastikan setSelectedEvent ada sebelum memanggilnya
+      setSelectedEvent(null); // Ini akan menutup modal di parent (BookingChart.jsx)
+    }
+    onClose(); // Ini adalah prop onClose dari parent yang akan mengatur `editModalOpen(false)`
+  }, [onClose, setSelectedEvent, setEditMode]);
 
   useEffect(() => {
     if (selectedEvent) {
-      // Fetch latest data when modal opens (only when not in edit mode)
-      const fetchLatestStatus = async () => {
-        if (!editMode && selectedEvent.id) {
-          try {
-            const response = await axios.get(`http://localhost:8000/api/reservations/${selectedEvent.id}`);
-            const latestData = response.data;
-
-            setFormData((prev) => ({
-              ...prev,
-              status: latestData.status || prev.status
-            }));
-
-            // Update selectedEvent with latest status
-            setSelectedEvent((prev) => ({
-              ...prev,
-              status: latestData.status,
-              extendedProps: {
-                ...prev.extendedProps,
-                status: latestData.status
-              }
-            }));
-          } catch (error) {
-            console.error('Failed to fetch latest status:', error);
-          }
-        }
-      };
-
-      // Set initial form data
+      // Set initial form data dari selectedEvent
       setFormData({
         firstName: selectedEvent.firstName || '',
         lastName: selectedEvent.lastName || '',
         email: selectedEvent.email || '',
-        checkin: selectedEvent.checkin || '',
-        checkout: selectedEvent.checkout || '',
+        checkin: selectedEvent.start || '', // Menggunakan start dari FullCalendar event
+        checkout: selectedEvent.end || '', // Menggunakan end dari FullCalendar event
         roomType: selectedEvent.roomType || '',
         subRoom: selectedEvent.subRoom || '',
         ratePlan: selectedEvent.ratePlan || 'Rooms Only',
@@ -137,7 +121,7 @@ const EditBookingModal = ({
         status: selectedEvent.extendedProps?.status || selectedEvent.status || 'confirm'
       });
 
-      // Get rates if available
+      // Get rates if available (pastikan ini sesuai dengan struktur data Anda)
       const rawRates =
         selectedEvent.extendedProps?.daily_rates ||
         selectedEvent.extendedProps?.dailyRates ||
@@ -145,42 +129,80 @@ const EditBookingModal = ({
         selectedEvent.dailyRates ||
         [];
 
-      if (Array.isArray(rawRates)) {
+      if (Array.isArray(rawRates) && rawRates.length > 0) {
         setDailyRates(rawRates);
         setHasLoadedRates(true);
+      } else {
+        setDailyRates([]); // Reset jika tidak ada rates
+        setHasLoadedRates(false);
       }
 
-      // Fetch latest status
-      fetchLatestStatus();
+      setActiveSection('detail'); // Reset ke detail section saat event baru dipilih
+
+      // Fetch latest data when modal opens (if ID exists and not initially in edit mode, or always for fresh data)
+      const fetchLatestStatus = async () => {
+        if (selectedEvent.id) {
+          // Selalu fetch data terbaru jika ada ID
+          try {
+            const response = await axios.get(`http://localhost:8000/api/reservations/${selectedEvent.id}`);
+            const latestData = response.data;
+
+            setFormData((prev) => ({
+              ...prev,
+              status: latestData.status || prev.status,
+              totalPrice: latestData.total_price || prev.totalPrice // Update total price juga
+            }));
+
+            // Update selectedEvent state di parent jika Anda ingin UI di parent juga refresh
+            // Namun, ini biasanya dikelola oleh fetchReservations di BookingChart setelah update.
+            //setSelectedEvent((prev) => ({
+            //  ...prev,
+            //  status: latestData.status,
+            //  totalPrice: latestData.total_price,
+            //  extendedProps: {
+            //    ...prev.extendedProps,
+            //    status: latestData.status,
+            //    totalPrice: latestData.total_price,
+            //  }
+            //}));
+          } catch (error) {
+            console.error('Failed to fetch latest status:', error);
+          }
+        }
+      };
+      fetchLatestStatus(); // Panggil saat modal terbuka
     }
-  }, [selectedEvent]);
+  }, [selectedEvent, editMode]); // selectedEvent dan editMode adalah dependensi yang wajar
 
   useEffect(() => {
+    // Recalculate total price if daily rates change and in edit mode
     if (dailyRates.length > 0 && editMode) {
       const newTotal = calculateTotalFromRates();
       setFormData((prev) => ({ ...prev, totalPrice: newTotal }));
     }
-  }, [dailyRates, editMode]);
+  }, [dailyRates, editMode]); // calculateTotalFromRates adalah fungsi internal, jadi tidak perlu di sini
 
   const generateRates = (checkin, checkout, defaultPrice) => {
     const start = new Date(checkin);
     const end = new Date(checkout);
+    // Hati-hati dengan perhitungan hari, pastikan checkout tidak dihitung sebagai malam.
+    // Jika checkout adalah hari keberangkatan, maka jumlah malam adalah (checkout - checkin)
     const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
 
     if (days <= 0) return;
 
-    const fallbackPrice = 500000; // ← harga default fallback
-    const pricePerNight = Math.round(Number(defaultPrice || fallbackPrice) / days);
+    const fallbackPrice = 500000;
+    // Gunakan defaultPrice yang sudah ada atau fallbackPrice, lalu bagi dengan jumlah hari
+    const initialPricePerNight = Math.round(Number(defaultPrice || fallbackPrice) / days);
 
     const rates = [];
     const current = new Date(checkin);
 
     for (let i = 0; i < days; i++) {
       const dateStr = current.toISOString().split('T')[0];
-      rates.push({ date: dateStr, price: pricePerNight });
+      rates.push({ date: dateStr, price: initialPricePerNight });
       current.setDate(current.getDate() + 1);
     }
-
     setDailyRates(rates);
   };
 
@@ -188,16 +210,10 @@ const EditBookingModal = ({
     return dailyRates.reduce((acc, curr) => acc + Number(curr.price), 0);
   };
 
-  const handleSetTotalPrice = () => {
-    const nights = dailyRates.length;
-    if (nights === 0) return;
-
-    const total = prompt('Masukkan total harga (misal: 12000000):');
-    if (!total || isNaN(total)) return;
-
-    const perNight = Math.floor(Number(total) / nights);
-    const newRates = dailyRates.map((item) => ({ ...item, price: perNight }));
-    setDailyRates(newRates);
+  const handleSetTotalManual = () => {
+    // Mengganti handleSetTotalPrice dengan ini
+    setShowManualTotalDialog(true);
+    setManualTotalInput(formData.totalPrice.toString()); // Set nilai awal input dengan total saat ini
   };
 
   const handleChange = (e) => {
@@ -205,25 +221,73 @@ const EditBookingModal = ({
     setFormData((prev) => {
       const newData = { ...prev, [name]: value };
 
+      // Recalculate total price if checkin, checkout, or roomType changes
       if (name === 'checkin' || name === 'checkout' || name === 'roomType') {
         if (newData.checkin && newData.checkout && newData.roomType) {
+          // Asumsi calculateTotalPrice adalah fungsi yang di-pass dari parent
+          // dan mengembalikan total harga berdasarkan roomType dan rentang tanggal
           newData.totalPrice = calculateTotalPrice(newData.roomType, newData.checkin, newData.checkout);
+          // Jika Anda ingin dailyRates juga otomatis terisi/terupdate saat tanggal berubah
+          if (editMode) {
+            // Hanya generate rates jika dalam mode edit
+            generateRates(newData.checkin, newData.checkout, newData.totalPrice);
+          }
+        } else {
+          newData.totalPrice = 0; // Reset total jika tanggal atau tipe kamar tidak lengkap
+          setDailyRates([]);
         }
       }
-
       return newData;
     });
   };
 
-  const handleSubmit = (e) => {
-    console.log('Status yang akan dikirim:', formData.status);
-
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    setIsSaving(true); // Mulai loading untuk tombol simpan
+
+    // Gunakan total dari dailyRates jika ada, jika tidak, gunakan formData.totalPrice
     const finalTotal = dailyRates.length > 0 ? calculateTotalFromRates() : formData.totalPrice;
-    handleUpdateEvent({ ...formData, totalPrice: finalTotal }, dailyRates);
+
+    // Pastikan ID reservasi ada
+    if (!selectedEvent || !selectedEvent.id) {
+      console.error('Tidak ada ID reservasi untuk diperbarui.');
+      setIsSaving(false);
+      return;
+    }
+
+    // Panggil handleUpdateEvent dari parent
+    await handleUpdateEvent(
+      selectedEvent.id, // Teruskan ID reservasi
+      { ...formData, totalPrice: finalTotal },
+      dailyRates // Kirim juga dailyRates jika diperlukan di backend
+    );
+    setIsSaving(false); // Selesai loading
+    cleanupAndClose(); // Tutup modal setelah simpan
+    if (fetchReservations) {
+      // Panggil fetchReservations dari parent untuk refresh data
+      fetchReservations();
+    }
   };
 
-  if (!selectedEvent) return null;
+  // Fungsi untuk menangani download invoice
+  const handleDownloadInvoiceClick = async () => {
+    if (!selectedEvent || !selectedEvent.id) {
+      console.warn('Tidak ada booking ID untuk mengunduh invoice.');
+      return;
+    }
+    setIsDownloading(true); // Mulai loading
+    try {
+      // Panggil prop onDownloadInvoice yang diteruskan dari parent (BookingChart.jsx)
+      await onDownloadInvoice(selectedEvent.id);
+    } catch (error) {
+      console.error('Gagal mengunduh invoice di modal:', error);
+      // Di sini Anda bisa menambahkan notifikasi atau alert jika ingin
+    } finally {
+      setIsDownloading(false); // Selesai loading
+    }
+  };
+
+  if (!selectedEvent) return null; // Modal tidak akan render jika tidak ada event terpilih
 
   return (
     <Modal open={!!selectedEvent} onClose={handleCloseModal}>
@@ -250,9 +314,28 @@ const EditBookingModal = ({
           </IconButton>
         </Box>
 
-        {activeSection === 'comment' ? (
-          <BookingComments bookingId={selectedEvent.id} onClose={() => setActiveSection('detail')} />
-        ) : activeSection === 'payment' ? (
+        <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
+          <Button variant={activeSection === 'detail' ? 'contained' : 'outlined'} onClick={() => setActiveSection('detail')}>
+            Details
+          </Button>
+          <Button variant={activeSection === 'comment' ? 'contained' : 'outlined'} onClick={() => setActiveSection('comment')}>
+            Comments
+          </Button>
+          <Button variant={activeSection === 'payment' ? 'contained' : 'outlined'} onClick={() => setActiveSection('payment')}>
+            Payments
+          </Button>
+          {showRates && ( // Hanya tampilkan tombol rates jika showRates true
+            <Button variant={activeSection === 'rates' ? 'contained' : 'outlined'} onClick={() => setActiveSection('rates')}>
+              Rates
+            </Button>
+          )}
+        </Stack>
+        <Divider sx={{ mb: 2 }} />
+
+        {/* --- Section Content --- */}
+        {activeSection === 'comment' && <BookingComments bookingId={selectedEvent.id} onClose={() => setActiveSection('detail')} />}
+
+        {activeSection === 'payment' && (
           <>
             <Box display="flex" alignItems="center" gap={1} mb={2}>
               <IconButton size="small" onClick={() => setActiveSection('detail')}>
@@ -262,10 +345,56 @@ const EditBookingModal = ({
                 Pembayaran
               </Typography>
             </Box>
-
-            <AddPaymentContent onSubmit={handleAddPayment} bookingId={selectedEvent.id} totalPrice={selectedEvent?.total_price} />
+            {/* Pastikan `AddPaymentContent` menerima props yang benar dan handleAddPayment adalah fungsi yang sesuai */}
+            <AddPaymentContent
+              bookingId={selectedEvent.id}
+              totalPrice={selectedEvent?.totalPrice} // Gunakan totalPrice dari selectedEvent atau formData
+              paidAmount={selectedEvent?.paidAmount} // Prop paidAmount jika ada di selectedEvent
+              fetchReservations={fetchReservations} // Pastikan ini di-pass ke AddPaymentContent
+              // OnAddPayment sukses, mungkin perlu refresh data atau update state
+              onPaymentSuccess={fetchReservations} // Panggil fetchReservations setelah pembayaran sukses
+            />
           </>
-        ) : (
+        )}
+
+        {activeSection === 'rates' &&
+          showRates && ( // Tampilkan hanya jika activeSection adalah 'rates' DAN showRates true
+            <Grid item xs={12}>
+              <Box mt={2} p={2} border={1} borderRadius={1} borderColor="divider">
+                <Typography variant="h6" gutterBottom>
+                  Daily Rates
+                </Typography>
+                {dailyRates.map((item, idx) => (
+                  <Box key={`${item.date}-${idx}`} sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, alignItems: 'center' }}>
+                    <Typography>{item.date}</Typography>
+                    <TextField
+                      type="number"
+                      size="small"
+                      value={item.price}
+                      onChange={(e) => {
+                        const updated = [...dailyRates];
+                        updated[idx].price = parseFloat(e.target.value) || 0;
+                        setDailyRates(updated);
+
+                        const total = updated.reduce((acc, curr) => acc + Number(curr.price), 0);
+                        setFormData((prev) => ({ ...prev, totalPrice: total }));
+                      }}
+                      inputProps={{
+                        step: '10000',
+                        min: '0'
+                      }}
+                      sx={{ width: '150px' }}
+                    />
+                  </Box>
+                ))}
+                <Typography variant="subtitle1" sx={{ mt: 2 }}>
+                  Total: Rp {calculateTotalFromRates().toLocaleString('id-ID')}
+                </Typography>
+              </Box>
+            </Grid>
+          )}
+
+        {activeSection === 'detail' && (
           <Box display="flex" gap={3} mt={2}>
             <Box flex={1}>
               <Grid container spacing={2}>
@@ -344,8 +473,11 @@ const EditBookingModal = ({
                     InputProps={{ readOnly: !editMode }}
                     onChange={handleChange}
                   >
-                    <MenuItem value="Standard">Standard</MenuItem>
-                    <MenuItem value="Superior">Superior</MenuItem>
+                    {resources.map((res) => (
+                      <MenuItem key={res.id} value={res.title}>
+                        {res.title}
+                      </MenuItem>
+                    ))}
                   </TextField>
                 </Grid>
 
@@ -362,12 +494,11 @@ const EditBookingModal = ({
                   >
                     <MenuItem value="UNASSIGNED">Belum dipilih</MenuItem>
                     {resources
-                      .filter((room) => room.type === formData.roomType)
-                      .map((room) => {
-                        const roomNumber = room.title.split(' ')[1];
+                      .find((res) => res.title === formData.roomType)
+                      ?.extendedProps?.sub_rooms?.map((sub) => {
                         const isUnavailable = !checkRoomAvailability(
                           formData.roomType,
-                          roomNumber,
+                          sub.title, // Menggunakan sub.title (nomor kamar)
                           formData.checkin,
                           formData.checkout,
                           selectedEvent.id,
@@ -376,12 +507,12 @@ const EditBookingModal = ({
 
                         return (
                           <MenuItem
-                            key={room.id}
-                            value={roomNumber}
+                            key={sub.id}
+                            value={sub.title}
                             disabled={isUnavailable}
                             sx={{ opacity: isUnavailable ? 0.5 : 1, color: isUnavailable ? 'text.disabled' : 'inherit' }}
                           >
-                            {roomNumber} {isUnavailable ? '(Dipakai)' : ''}
+                            {sub.title} {isUnavailable ? '(Dipakai)' : ''}
                           </MenuItem>
                         );
                       })}
@@ -438,7 +569,14 @@ const EditBookingModal = ({
                     fullWidth
                     InputProps={{
                       readOnly: true,
-                      startAdornment: <InputAdornment position="start">IDR</InputAdornment>
+                      startAdornment: <InputAdornment position="start">IDR</InputAdornment>,
+                      endAdornment: editMode && ( // Tampilkan tombol edit hanya jika dalam mode edit
+                        <InputAdornment position="end">
+                          <IconButton onClick={handleSetTotalManual} edge="end">
+                            <EditIcon />
+                          </IconButton>
+                        </InputAdornment>
+                      )
                     }}
                   />
                 </Grid>
@@ -467,62 +605,21 @@ const EditBookingModal = ({
                         variant="outlined"
                         onClick={() => {
                           if (!showRates) {
-                            // ✅ hanya generate jika belum pernah load dari backend
+                            // Hanya generate jika belum pernah load dari backend atau dailyRates kosong
                             if (!hasLoadedRates || dailyRates.length === 0) {
                               generateRates(formData.checkin, formData.checkout, formData.totalPrice || 0);
                             }
-
                             setShowRates(true);
+                            setActiveSection('rates'); // Pindah ke section rates
                           } else {
                             setShowRates(false);
+                            setActiveSection('detail'); // Kembali ke detail
                           }
                         }}
                       >
                         {showRates ? 'Sembunyikan Rates' : 'Tampilkan Rates'}
                       </Button>
-
-                      {showRates && (
-                        <Button variant="outlined" onClick={() => setShowManualTotalDialog(true)}>
-                          Set Total Manual
-                        </Button>
-                      )}
                     </Stack>
-                  </Grid>
-                )}
-
-                {showRates && (
-                  <Grid item xs={12}>
-                    <Box mt={2} p={2} border={1} borderRadius={1} borderColor="divider">
-                      {dailyRates.map((item, idx) => (
-                        <Box
-                          key={`${item.date}-${idx}`}
-                          sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, alignItems: 'center' }}
-                        >
-                          <Typography>{item.date}</Typography>
-                          <TextField
-                            type="number"
-                            size="small"
-                            value={item.price}
-                            onChange={(e) => {
-                              const updated = [...dailyRates];
-                              updated[idx].price = parseFloat(e.target.value) || 0;
-                              setDailyRates(updated);
-
-                              const total = updated.reduce((acc, curr) => acc + Number(curr.price), 0);
-                              setFormData((prev) => ({ ...prev, totalPrice: total }));
-                            }}
-                            inputProps={{
-                              step: '10000',
-                              min: '0'
-                            }}
-                            sx={{ width: '150px' }}
-                          />
-                        </Box>
-                      ))}
-                      <Typography variant="subtitle1" sx={{ mt: 2 }}>
-                        Total: Rp {calculateTotalFromRates().toLocaleString('id-ID')}
-                      </Typography>
-                    </Box>
                   </Grid>
                 )}
               </Grid>
@@ -539,7 +636,7 @@ const EditBookingModal = ({
                   color="primary"
                   startIcon={<PaymentIcon />}
                   fullWidth
-                  onClick={() => setActiveSection('payment')} // ✅ ubah ke dynamic section
+                  onClick={() => setActiveSection('payment')}
                 >
                   Pembayaran
                 </Button>
@@ -550,30 +647,34 @@ const EditBookingModal = ({
                 color="secondary"
                 startIcon={<CommentIcon />}
                 fullWidth
-                onClick={() => setActiveSection('comment')} // <<< Pastikan ini
+                onClick={() => setActiveSection('comment')}
               >
                 Komentar
+              </Button>
+
+              <Button
+                variant="contained"
+                onClick={handleDownloadInvoiceClick} // <-- Panggil fungsi download
+                startIcon={isDownloading ? <CircularProgress size={20} color="inherit" /> : <GetAppIcon />}
+                disabled={isDownloading || !selectedEvent?.id} // Nonaktifkan saat loading atau tanpa ID
+                fullWidth
+              >
+                {isDownloading ? 'Downloading...' : 'Download Invoice'}
               </Button>
 
               {editMode ? (
                 <>
                   <Button variant="outlined" color="inherit" fullWidth onClick={() => setEditMode(false)}>
-                    Batal
+                    Batal Edit
                   </Button>
                   <Button
-                    onClick={() => {
-                      const finalTotal = calculateTotalFromRates();
-                      handleUpdateEvent(
-                        {
-                          id: selectedEvent.id, // ✅ tambahkan ID
-                          ...formData,
-                          totalPrice: finalTotal
-                        },
-                        dailyRates // ✅ kirim juga
-                      );
-                    }}
+                    variant="contained"
+                    type="submit"
+                    startIcon={isSaving ? <CircularProgress size={24} color="inherit" /> : <SaveIcon />}
+                    disabled={isSaving}
+                    fullWidth
                   >
-                    Simpan
+                    {isSaving ? 'Saving...' : 'Simpan Perubahan'}
                   </Button>
                 </>
               ) : (
@@ -582,42 +683,45 @@ const EditBookingModal = ({
                 </Button>
               )}
             </Box>
-            <Divider sx={{ my: 2 }} />
-            <Dialog open={showManualTotalDialog} onClose={() => setShowManualTotalDialog(false)} maxWidth="xs" fullWidth>
-              <DialogTitle>Set Total Manual</DialogTitle>
-              <DialogContent sx={{ minWidth: 360 }}>
-                <TextField
-                  autoFocus
-                  margin="dense"
-                  label="Masukkan total harga (misal: 12000000)"
-                  type="number"
-                  fullWidth
-                  inputProps={{ style: { fontSize: '1.1rem' } }}
-                  value={manualTotalInput}
-                  onChange={(e) => setManualTotalInput(e.target.value)}
-                />
-              </DialogContent>
-              <DialogActions>
-                <Button onClick={() => setShowManualTotalDialog(false)}>Batal</Button>
-                <Button
-                  onClick={() => {
-                    const total = parseFloat(manualTotalInput);
-                    if (!isNaN(total) && dailyRates.length > 0) {
-                      const perNight = Math.floor(total / dailyRates.length);
-                      const updatedRates = dailyRates.map((item) => ({ ...item, price: perNight }));
-                      setDailyRates(updatedRates);
-                      setFormData((prev) => ({ ...prev, totalPrice: total }));
-                    }
-                    setShowManualTotalDialog(false);
-                    setManualTotalInput('');
-                  }}
-                >
-                  Simpan
-                </Button>
-              </DialogActions>
-            </Dialog>
           </Box>
         )}
+
+        {/* Dialog untuk manual total price */}
+        <Dialog open={showManualTotalDialog} onClose={() => setShowManualTotalDialog(false)} maxWidth="xs" fullWidth>
+          <DialogTitle>Set Total Manual</DialogTitle>
+          <DialogContent sx={{ minWidth: 360 }}>
+            <TextField
+              autoFocus
+              margin="dense"
+              label="Masukkan total harga (misal: 12000000)"
+              type="number"
+              fullWidth
+              inputProps={{ style: { fontSize: '1.1rem' } }}
+              value={manualTotalInput}
+              onChange={(e) => setManualTotalInput(e.target.value)}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setShowManualTotalDialog(false)}>Batal</Button>
+            <Button
+              onClick={() => {
+                const total = parseFloat(manualTotalInput);
+                if (!isNaN(total)) {
+                  if (dailyRates.length > 0) {
+                    const perNight = Math.floor(total / dailyRates.length);
+                    const updatedRates = dailyRates.map((item) => ({ ...item, price: perNight }));
+                    setDailyRates(updatedRates);
+                  }
+                  setFormData((prev) => ({ ...prev, totalPrice: total }));
+                }
+                setShowManualTotalDialog(false);
+                setManualTotalInput('');
+              }}
+            >
+              Simpan
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </Modal>
   );

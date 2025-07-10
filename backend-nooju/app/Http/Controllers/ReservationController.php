@@ -75,37 +75,30 @@ public function update(Request $request, $id)
         return response()->json(['message' => 'Reservasi tidak ditemukan'], 404);
     }
 
-    $data = $request->validate([
-        'first_name' => 'sometimes|required|string|max:100',
-        'last_name' => 'sometimes|required|string|max:100',
-        'email' => 'nullable|email|max:100',
-        'room_type' => 'sometimes|required|string|in:Standard,Superior',
-        'sub_room' => 'sometimes|required|string|max:20',
-        'rate_plan' => 'nullable|string|in:Rooms Only,Breakfast Included',
-        'adult' => 'sometimes|required|integer|min:1',
-        'children' => 'nullable|integer|min:0',
-        'check_in_date' => 'sometimes|required|date|date_format:Y-m-d',
-        'check_out_date' => 'sometimes|required|date|date_format:Y-m-d|after:check_in_date',
-        'total_price' => 'sometimes|required|numeric|min:0',
-        'daily_rates' => 'sometimes|required|array',
-        'status' => 'sometimes|string|in:confirm,onhold,cancel'
-    ]);
+    $reservation->first_name = $request->first_name;
+    $reservation->last_name = $request->last_name;
+    $reservation->email = $request->email;
+    $reservation->room_type = $request->room_type;
+    $reservation->sub_room = $request->sub_room;
+    $reservation->rate_plan = $request->rate_plan;
+    $reservation->adult = $request->adult;
+    $reservation->children = $request->children;
+    $reservation->check_in_date = $request->check_in_date;
+    $reservation->check_out_date = $request->check_out_date;
+    $reservation->total_price = $request->total_price;
+    $reservation->daily_rates = json_encode($request->daily_rates); // pastikan daily_rates di-encode
 
-    try {
-        $reservation->update($data); // Gunakan update() bukan save() manual
-
-        return response()->json([
-            'success' => true,
-            'data' => $reservation->fresh(), // Ambil data terbaru dari database
-            'message' => 'Reservasi berhasil diperbarui'
-        ]);
-    } catch (\Throwable $e) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Gagal memperbarui reservasi',
-            'error' => $e->getMessage()
-        ], 500);
+       if ($request->has('status')) {
+        $reservation->status = $request->status;
     }
+
+    $reservation->save();
+
+
+    return response()->json([
+        'message' => 'Reservasi berhasil diperbarui',
+        'data' => $reservation
+    ]);
 }
 
     // DELETE reservation

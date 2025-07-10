@@ -27,6 +27,7 @@ class Reservation extends Model
     }
 
     
+// app/Models/Reservation.php
 
     
 }

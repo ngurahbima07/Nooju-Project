@@ -89,6 +89,14 @@ const BookingManagement = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
+  function CustomNoRowsOverlay() {
+    return (
+      <Stack height="100%" alignItems="center" justifyContent="center">
+        <Typography variant="body1">No bookings found</Typography>
+      </Stack>
+    );
+  }
+
   // Fungsi untuk mengambil data booking
   const fetchBookings = async () => {
     setLoading(true);
@@ -96,37 +104,47 @@ const BookingManagement = () => {
     try {
       const response = await axios.get('http://localhost:8000/api/reservations');
 
-      // *** KRUSIAL: Filter out any null/undefined entries from the raw response data ***
-      const rawBookings = Array.isArray(response.data) ? response.data.filter((booking) => booking != null) : [];
+      const formattedBookings = response.data.map((booking) => {
+        // Pastikan fungsi konversi bekerja
+        const parseMoney = (val) => {
+          if (!val) return 0;
+          const num = Number(String(val).replace(/[^\d.-]/g, ''));
+          return isNaN(num) ? 0 : num;
+        };
 
-      const formattedBookings = rawBookings
-        .map((booking) => ({
-          // *** KRUSIAL: PASTIKAN ID SELALU ADA DAN VALID UNTUK DATAGRID ***
-          // Konversi id ke string, jika booking.id null/undefined, set id menjadi null
-          id: booking.id != null ? String(booking.id) : null,
-          guestName: `${booking.first_name || ''} ${booking.last_name || ''}`,
+        const total = parseMoney(booking.total_price);
+        const paid = parseMoney(booking.paid_amount);
+        const remaining = total - paid;
+
+        return {
+          id: String(booking.id),
+          guestName: `${booking.first_name || ''} ${booking.last_name || ''}`.trim(),
           guestEmail: booking.email || '',
           roomType: booking.room_type || '',
           roomNumber: booking.sub_room || '',
           arrival: booking.check_in_date || '',
           departure: booking.check_out_date || '',
-          totalPayment: booking.total_price != null ? Number(booking.total_price) : 0,
-          status: booking.status || 'pending',
-          paid_amount: booking.paid_amount != null ? Number(booking.paid_amount) : 0
-        }))
-        // *** KRUSIAL: FILTER TAMBAHAN: Hapus baris yang memiliki ID null setelah pemformatan ***
-        .filter((booking) => booking.id != null);
+          totalPayment: total,
+          paidAmount: paid,
+          remainingPayment: remaining > 0 ? remaining : 0,
+          status: booking.status || 'pending'
+        };
+      });
 
+      console.log('Formatted bookings:', formattedBookings); // Verifikasi data
       setBookings(formattedBookings);
     } catch (err) {
-      console.error('Error fetching bookings:', err);
-      setError('Gagal memuat data booking.');
+      console.error('Error:', err);
+      setError('Gagal memuat data booking');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    if (bookings.length > 0) {
+      console.log('Contoh data booking pertama:', bookings[0]);
+    }
     fetchBookings();
   }, []);
 
@@ -183,37 +201,70 @@ const BookingManagement = () => {
       { field: 'guestName', headerName: 'Guest Name', width: 200 },
       { field: 'guestEmail', headerName: 'Email', width: 200 },
       { field: 'roomType', headerName: 'Room Type', width: 120 },
-      { field: 'roomNumber', headerName: 'Room No.', width: 100 },
+      { field: 'roomNumber', headerName: 'Room No.', width: 100, align: 'center', headerAlign: 'center' },
       { field: 'arrival', headerName: 'Check-in', width: 130 },
       { field: 'departure', headerName: 'Check-out', width: 130 },
       {
         field: 'totalPayment',
         headerName: 'Total Price',
         width: 130,
-        valueFormatter: (params) => `Rp ${Number(params.value).toLocaleString('id-ID')}`
+        align: 'center',
+        headerAlign: 'center',
+        renderCell: (params) => {
+          const formattedValue = `Rp ${Number(params.value || 0).toLocaleString('id-ID')}`;
+          return (
+            // Tambahkan Box dengan display flex dan alignItems center
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', width: '100%' }}>
+              <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                {formattedValue}
+              </Typography>
+            </Box>
+          );
+        }
       },
       {
-        field: 'paid_amount',
+        field: 'paidAmount',
         headerName: 'Paid Amount',
         width: 130,
-        valueFormatter: (params) => `Rp ${Number(params.value).toLocaleString('id-ID')}`
+        align: 'center',
+        headerAlign: 'center',
+        renderCell: (params) => {
+          const formattedValue = `Rp ${Number(params.value || 0).toLocaleString('id-ID')}`;
+          return (
+            // Tambahkan Box dengan display flex dan alignItems center
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', width: '100%' }}>
+              <Typography variant="body2" color="success.main" sx={{ fontWeight: 500 }}>
+                {formattedValue}
+              </Typography>
+            </Box>
+          );
+        }
       },
       {
-        field: 'remaining_payment',
+        field: 'remainingPayment',
         headerName: 'Remaining',
         width: 130,
-        // *** Ini baris 182, sudah defensif. Masalahnya jika params.row itu sendiri undefined ***
-        valueGetter: (params) => {
-          if (!params || !params.row) return 0;
-          return (params.row.totalPayment ?? 0) - (params.row.paid_amount ?? 0);
-        },
-
-        valueFormatter: (params) => `Rp ${Number(params.value).toLocaleString('id-ID')}`
+        align: 'center',
+        headerAlign: 'center',
+        renderCell: (params) => {
+          const formattedValue = `Rp ${Number(params.value || 0).toLocaleString('id-ID')}`;
+          const isRemainingPositive = Number(params.value || 0) > 0;
+          return (
+            // Tambahkan Box dengan display flex dan alignItems center
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', width: '100%' }}>
+              <Typography variant="body2" color={isRemainingPositive ? 'error.main' : 'success.main'} sx={{ fontWeight: 500 }}>
+                {formattedValue}
+              </Typography>
+            </Box>
+          );
+        }
       },
       {
         field: 'status',
         headerName: 'Status',
         width: 120,
+        align: 'center',
+        headerAlign: 'center',
         renderCell: (params) => {
           switch (params.value) {
             case 'confirm':
@@ -236,8 +287,10 @@ const BookingManagement = () => {
         width: 150,
         sortable: false,
         filterable: false,
+        align: 'center',
+        headerAlign: 'center',
         renderCell: (params) => (
-          <Stack direction="row" spacing={1}>
+          <Stack direction="row" spacing={1} justifyContent="center" width="100%">
             <Tooltip title="View Details">
               <IconButton onClick={() => handleView(params.row)} size="small">
                 <ViewIcon />
@@ -312,7 +365,6 @@ const BookingManagement = () => {
   }
 
   return (
-    // Mengganti Paper dengan MainCard untuk konsistensi desain
     <MainCard title="Booking Management">
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -324,23 +376,20 @@ const BookingManagement = () => {
         <DataGrid
           rows={filteredBookings}
           columns={columns}
-          pageSizeOptions={[5, 10, 20]}
+          loading={loading}
           initialState={{
             pagination: {
               paginationModel: { pageSize: 10, page: 0 }
             }
           }}
-          loading={loading}
           slots={{
             toolbar: CustomToolbar,
+            noRowsOverlay: CustomNoRowsOverlay,
             loadingOverlay: LinearProgress
           }}
-          disableRowSelectionOnClick
-          autoHeight={isMobile}
         />
       </Box>
 
-      {/* Edit Booking Modal (menggunakan EditBookingManagementModal yang sudah dimodifikasi) */}
       {bookingToEdit && (
         <EditBookingManagementModal
           open={editModalOpen}
@@ -348,7 +397,7 @@ const BookingManagement = () => {
           booking={bookingToEdit}
           onSave={handleSaveEdit}
           onDelete={handleDeleteBooking}
-          onRefreshBookings={fetchBookings} // Meneruskan fungsi refresh data
+          onRefreshBookings={fetchBookings}
         />
       )}
 
@@ -496,13 +545,14 @@ const BookingManagement = () => {
                           <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                             <Typography variant="body1">Total Price:</Typography>
                             <Typography variant="body1" fontWeight={600}>
-                              Rp {Number(selectedBooking.totalPayment).toLocaleString('id-ID')}
+                              Rp {Number(selectedBooking.totalPayment || 0).toLocaleString('id-ID')}
                             </Typography>
                           </Box>
                           <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                             <Typography variant="body1">Paid Amount:</Typography>
+                            {/* Perbaiki penggunaan field 'paid_amount' menjadi 'paidAmount' */}
                             <Typography variant="body1" color="success.main">
-                              Rp {Number(selectedBooking.paid_amount).toLocaleString('id-ID')}
+                              Rp {Number(selectedBooking.paidAmount || 0).toLocaleString('id-ID')}
                             </Typography>
                           </Box>
                           <Divider />
@@ -513,9 +563,13 @@ const BookingManagement = () => {
                             <Typography
                               variant="body1"
                               fontWeight={600}
-                              color={selectedBooking.totalPayment - selectedBooking.paid_amount > 0 ? 'error.main' : 'success.main'}
+                              color={
+                                // Perbaiki penggunaan field 'paid_amount' menjadi 'paidAmount'
+                                (selectedBooking.totalPayment || 0) - (selectedBooking.paidAmount || 0) > 0 ? 'error.main' : 'success.main'
+                              }
                             >
-                              Rp {Number(selectedBooking.totalPayment - selectedBooking.paid_amount).toLocaleString('id-ID')}
+                              {/* Perbaiki penggunaan field 'paid_amount' menjadi 'paidAmount' */}
+                              Rp {Number((selectedBooking.totalPayment || 0) - (selectedBooking.paidAmount || 0)).toLocaleString('id-ID')}
                             </Typography>
                           </Box>
                         </Stack>
@@ -534,7 +588,7 @@ const BookingManagement = () => {
                           gap: 1.5
                         }}
                       >
-                        {selectedBooking.status === 'confirmed' && (
+                        {(selectedBooking.status === 'confirm' || selectedBooking.status === 'confirmed') && ( // Perubahan di sini
                           <Chip
                             label="Confirmed"
                             color="success"
@@ -546,7 +600,7 @@ const BookingManagement = () => {
                             }}
                           />
                         )}
-                        {selectedBooking.status === 'pending' && (
+                        {(selectedBooking.status === 'onhold' || selectedBooking.status === 'pending') && ( // Perubahan di sini
                           <Chip
                             label="Pending Payment"
                             color="warning"
@@ -558,7 +612,7 @@ const BookingManagement = () => {
                             }}
                           />
                         )}
-                        {selectedBooking.status === 'cancelled' && (
+                        {(selectedBooking.status === 'cancel' || selectedBooking.status === 'cancelled') && ( // Perubahan di sini
                           <Chip
                             label="Cancelled"
                             color="error"
@@ -570,7 +624,8 @@ const BookingManagement = () => {
                             }}
                           />
                         )}
-                        {!['confirmed', 'pending', 'cancelled'].includes(selectedBooking.status) && (
+                        {/* Jika status tidak cocok dengan yang di atas, maka Unknown */}
+                        {!['confirm', 'confirmed', 'onhold', 'pending', 'cancel', 'cancelled'].includes(selectedBooking.status) && ( // Perubahan di sini
                           <Chip
                             label="Unknown"
                             color="default"
