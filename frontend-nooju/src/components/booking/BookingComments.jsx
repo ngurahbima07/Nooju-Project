@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Typography, Paper, TextField, Button, Stack, IconButton } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import axios from 'axios';
+import api from '../../api/axios';
 
 const BookingComments = ({ bookingId, onClose, readOnly }) => {
   const [comments, setComments] = useState([]);
@@ -12,7 +12,7 @@ const BookingComments = ({ bookingId, onClose, readOnly }) => {
   const fetchComments = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`http://localhost:8000/api/comments/by-booking/${bookingId}`);
+      const res = await api.get(`/comments/by-booking/${bookingId}`);
       setComments(res.data);
     } catch (e) {
       console.error('Gagal fetch komentar', e);
@@ -28,7 +28,7 @@ const BookingComments = ({ bookingId, onClose, readOnly }) => {
     if (!newComment.trim()) return;
     setSubmitting(true);
     try {
-      await axios.post('http://localhost:8000/api/comments', { bookingId, comment: newComment.trim() });
+      await api.post('/comments', { bookingId, comment: newComment.trim() });
       setNewComment('');
       fetchComments();
     } catch (e) {
@@ -40,7 +40,7 @@ const BookingComments = ({ bookingId, onClose, readOnly }) => {
   const handleDeleteComment = async (commentId) => {
     if (!window.confirm('Hapus komentar ini?')) return;
     try {
-      await axios.delete(`http://localhost:8000/api/comments/${commentId}`);
+      await api.delete(`/comments/${commentId}`);
       setComments(comments.filter((c) => c.id !== commentId));
     } catch (e) {
       console.error('Gagal menghapus komentar', e);
@@ -112,3 +112,4 @@ const BookingComments = ({ bookingId, onClose, readOnly }) => {
 };
 
 export default BookingComments;
+

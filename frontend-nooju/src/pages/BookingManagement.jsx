@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import axios from 'axios';
+import api from '../api/axios';
 import { format, differenceInDays } from 'date-fns';
 
 // Components
@@ -102,7 +102,7 @@ const BookingManagement = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.get('http://localhost:8000/api/reservations');
+      const response = await api.get('/reservations');
 
       const formattedBookings = response.data.map((booking) => {
         // Pastikan fungsi konversi bekerja
@@ -161,7 +161,7 @@ const BookingManagement = () => {
   const handleDeleteBooking = async (id) => {
     setLoading(true);
     try {
-      await axios.delete(`http://localhost:8000/api/reservations/${id}`);
+      await api.delete(`/reservations/${id}`);
       setAlertMessage('Booking berhasil dihapus!');
       setAlertOpen(true);
       fetchBookings(); // Muat ulang data setelah penghapusan
@@ -708,3 +708,4 @@ const BookingManagement = () => {
 };
 
 export default BookingManagement;
+

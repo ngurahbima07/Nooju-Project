@@ -75,25 +75,32 @@ public function update(Request $request, $id)
         return response()->json(['message' => 'Reservasi tidak ditemukan'], 404);
     }
 
-    $reservation->first_name = $request->first_name;
-    $reservation->last_name = $request->last_name;
-    $reservation->email = $request->email;
-    $reservation->room_type = $request->room_type;
-    $reservation->sub_room = $request->sub_room;
-    $reservation->rate_plan = $request->rate_plan;
-    $reservation->adult = $request->adult;
-    $reservation->children = $request->children;
-    $reservation->check_in_date = $request->check_in_date;
-    $reservation->check_out_date = $request->check_out_date;
-    $reservation->total_price = $request->total_price;
-    $reservation->daily_rates = json_encode($request->daily_rates); // pastikan daily_rates di-encode
+    // Dulu endpoint ini tidak divalidasi sama sekali (beda dengan store()),
+    // jadi room_type/tanggal yang tidak valid bisa lolos tersimpan dan
+    // "menghilang" dari perhitungan Occupancy/Reports/Smart Pricing karena
+    // tidak cocok dengan config('rooms.inventory'). Disamakan dengan aturan
+    // validasi di store().
+    $data = $request->validate([
+        'first_name'      => 'required|string|max:100',
+        'last_name'       => 'required|string|max:100',
+        'email'           => 'nullable|email|max:100',
+        'room_type'       => 'required|string|in:Standard,Superior',
+        'sub_room'        => 'required|string|max:20',
+        'rate_plan'       => 'nullable|string|in:Rooms Only,Breakfast Included',
+        'adult'           => 'required|integer|min:1',
+        'children'        => 'nullable|integer|min:0',
+        'check_in_date'   => 'required|date|date_format:Y-m-d',
+        'check_out_date'  => 'required|date|date_format:Y-m-d|after:check_in_date',
+        'total_price'     => 'required|numeric|min:0',
+        'daily_rates'     => 'required|array',
+        'status'          => 'sometimes|string|in:confirm,onhold,cancel',
+    ]);
 
-       if ($request->has('status')) {
-        $reservation->status = $request->status;
-    }
-
+    // fill() + save() supaya mutator setDailyRatesAttribute() di model yang
+    // menangani encode-nya secara konsisten (sama seperti alur store()),
+    // tidak perlu json_encode manual di sini lagi.
+    $reservation->fill($data);
     $reservation->save();
-
 
     return response()->json([
         'message' => 'Reservasi berhasil diperbarui',

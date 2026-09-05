@@ -27,7 +27,7 @@ import {
   Payment as PaymentIcon,
   Comment as CommentIcon
 } from '@mui/icons-material';
-import axios from 'axios';
+import api from '../../api/axios';
 import { format } from 'date-fns';
 import AddPaymentContent from './AddPaymentContent';
 import BookingComments from './BookingComments';
@@ -92,7 +92,7 @@ const EditBookingManagementModal = ({ open, onClose, booking, onSave, onDelete, 
         paid_amount: formData.paidAmount
       };
 
-      await axios.put(`http://localhost:8000/api/reservations/${formData.id}`, payload);
+      await api.put(`/reservations/${formData.id}`, payload);
       await onRefreshBookings(); // Tambahkan ini
       onSave(formData.id);
       onClose();
@@ -245,3 +245,4 @@ const EditBookingManagementModal = ({ open, onClose, booking, onSave, onDelete, 
 };
 
 export default EditBookingManagementModal;
+

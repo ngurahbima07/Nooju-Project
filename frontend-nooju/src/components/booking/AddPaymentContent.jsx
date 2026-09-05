@@ -22,7 +22,7 @@ import PaymentIcon from '@mui/icons-material/Payment';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import QrCodeIcon from '@mui/icons-material/QrCode';
-import axios from 'axios';
+import api from '../../api/axios';
 import { format } from 'date-fns';
 
 const AddPaymentModal = ({ open, onClose, onSubmit, bookingId, totalPrice }) => {
@@ -43,7 +43,7 @@ const AddPaymentModal = ({ open, onClose, onSubmit, bookingId, totalPrice }) => 
     }
 
     try {
-      const res = await axios.post('http://localhost:8000/api/payments', {
+      const res = await api.post('/payments', {
         bookingId,
         paymentDate: payment.paymentDate,
         paymentType: payment.paymentType,
@@ -65,7 +65,7 @@ const AddPaymentModal = ({ open, onClose, onSubmit, bookingId, totalPrice }) => 
 
   const confirmDelete = async () => {
     try {
-      await axios.delete(`http://localhost:8000/api/payments/${selectedPaymentId}`);
+      await api.delete(`/payments/${selectedPaymentId}`);
       setPayments((prev) => prev.filter((p) => p.id !== selectedPaymentId));
       setConfirmOpen(false);
       setSelectedPaymentId(null);
@@ -77,8 +77,8 @@ const AddPaymentModal = ({ open, onClose, onSubmit, bookingId, totalPrice }) => 
 
   useEffect(() => {
     if (bookingId) {
-      axios
-        .get(`http://localhost:8000/api/payments/by-booking/${bookingId}`)
+      api
+        .get(`/payments/by-booking/${bookingId}`)
         .then((res) => setPayments(res.data))
         .catch((err) => console.error('❌ Gagal fetch payments:', err));
     }
@@ -241,3 +241,4 @@ const AddPaymentModal = ({ open, onClose, onSubmit, bookingId, totalPrice }) => 
 };
 
 export default AddPaymentModal;
+

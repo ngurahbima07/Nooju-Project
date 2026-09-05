@@ -20,6 +20,7 @@ import Tooltip from '@mui/material/Tooltip';
 import AddPaymentContent from 'components/booking/AddPaymentContent';
 import { CircularProgress } from '@mui/material';
 import axios from 'axios';
+import api from '../api/axios';
 import { calculateTotalPrice, checkRoomAvailability } from '../utils/booking';
 import EditBookingModal from 'components/booking/EditBookingModal';
 import AddBookingModal from 'components/booking/AddBookingModal';
@@ -117,7 +118,7 @@ export default function BookingChart() {
     try {
       setIsLoading((prev) => ({ ...prev, events: true }));
 
-      const response = await axios.get('http://localhost:8000/api/reservations');
+      const response = await api.get('/reservations');
       console.log('🛎️ Total data dari API:', response.data.length);
 
       // TAMBAHKAN filter & mapping seperti sebelumnya!
@@ -313,35 +314,6 @@ export default function BookingChart() {
       console.log(`🛌 ${event.title}: ${event.start} → ${event.end}, dihitung ${nights} malam (clamped)`);
     });
 
-    const handleDownloadInvoice = async (bookingId) => {
-      try {
-        // Panggil API untuk generate/download invoice
-        const response = await axios.get(`http://localhost:8000/api/invoice/${bookingId}`, {
-          responseType: 'blob' // Penting untuk handle file download
-        });
-
-        // Buat URL dari blob response
-        const url = window.URL.createObjectURL(new Blob([response.data]));
-
-        // Buat elemen <a> untuk trigger download
-        const link = document.createElement('a');
-        link.href = url;
-        link.setAttribute('download', `invoice-${bookingId}.pdf`); // Atur nama file
-        document.body.appendChild(link);
-        link.click();
-
-        // Bersihkan
-        link.remove();
-        window.URL.revokeObjectURL(url);
-
-        showSnackbar('Invoice berhasil diunduh', 'success');
-      } catch (error) {
-        console.error('Gagal mengunduh invoice:', error);
-        showSnackbar('Gagal mengunduh invoice', 'error');
-        throw error; // Re-throw error agar bisa ditangkap di EditBookingModal
-      }
-    };
-
     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
     const totalPossibleNights = validRooms.length * daysInMonth;
 
@@ -355,6 +327,69 @@ export default function BookingChart() {
     console.log('✅ Occupied Nights:', occupiedNights);
     console.log('📈 Occupancy %:', occupancyPercentage);
   }, [events, resources, filterDate]);
+
+  // Hitung harga otomatis lewat Smart Pricing (rule-based: okupansi, musiman,
+  // lead-time). Dipakai oleh AddBookingModal & EditBookingModal supaya harga
+  // yang tampil di form booking selalu konsisten dengan mesin Smart Pricing
+  // di backend, bukan lagi tabel harga flat yang di-hardcode di frontend.
+  // Kalau API-nya gagal (mis. koneksi putus), fallback ke harga flat lama
+  // (calculateTotalPrice) supaya form booking tetap bisa dipakai.
+  const calculateSmartPrice = async (roomType, checkin, checkout, bookingDate) => {
+    if (!roomType || !checkin || !checkout) {
+      return { total: 0, nights: [] };
+    }
+    if (new Date(checkout) <= new Date(checkin)) {
+      return { total: 0, nights: [] };
+    }
+
+    try {
+      const payload = {
+        room_type: roomType,
+        check_in_date: checkin,
+        check_out_date: checkout
+      };
+      if (bookingDate) {
+        payload.booking_date = bookingDate;
+      }
+
+      const response = await api.post('/pricing/calculate', payload);
+
+      return {
+        total: response.data.total_price,
+        nights: (response.data.nights || []).map((n) => ({ date: n.date, price: n.final_price }))
+      };
+    } catch (error) {
+      console.error('❌ Gagal menghitung Smart Pricing, pakai harga fallback:', error.response?.data || error.message);
+      return { total: calculateTotalPrice(roomType, checkin, checkout), nights: [] };
+    }
+  };
+
+  // Download invoice untuk satu booking. Dipindahkan ke level komponen (bukan di dalam
+  // useEffect) supaya bisa dioper sebagai prop ke EditBookingModal.
+  const handleDownloadInvoice = async (bookingId) => {
+    try {
+      const response = await api.get(`/invoice/${bookingId}`, {
+        responseType: 'blob' // Penting untuk handle file download
+      });
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `invoice-${bookingId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      showSnackbar('Invoice berhasil diunduh', 'success');
+    } catch (error) {
+      console.error('Gagal mengunduh invoice:', error);
+      showSnackbar('Gagal mengunduh invoice', 'error');
+      throw error; // Re-throw error agar bisa ditangkap di EditBookingModal
+    }
+  };
 
   const handleFilterDateChange = (e) => {
     const selected = e.target.value;
@@ -522,18 +557,25 @@ export default function BookingChart() {
       return;
     }
 
-    checkRoomAvailability(roomType, subRoom, startDate, endDate, excludeId, events);
+    const isAvailable = checkRoomAvailability(
+      event.extendedProps?.room_type,
+      event.extendedProps?.sub_room,
+      newStart,
+      newEnd,
+      event.id,
+      events
+    );
 
-    if (!available) {
-      showSnackbar(`Kamar ${event.extendedProps.sub_room} tidak tersedia.`);
+    if (!isAvailable) {
+      showSnackbar(`Kamar ${event.extendedProps.sub_room} tidak tersedia.`, 'error');
       revert?.();
       return;
     }
 
     showSnackbar('Menyimpan perubahan...');
 
-    axios
-      .put(`http://localhost:8000/api/reservations/${event.id}`, {
+    api
+      .put(`/reservations/${event.id}`, {
         ...event.extendedProps,
         check_in_date: newStart,
         check_out_date: newEnd
@@ -589,10 +631,10 @@ export default function BookingChart() {
 
   const handleAddPayment = async (paymentData) => {
     try {
-      await axios.post('http://localhost:8000/api/payments', paymentData);
+      await api.post('/payments', paymentData);
 
       // 1. Fetch semua pembayaran untuk booking ini
-      const res = await axios.get(`http://localhost:8000/api/payments/by-booking/${paymentData.bookingId}`);
+      const res = await api.get(`/payments/by-booking/${paymentData.bookingId}`);
 
       // 2. Hitung total pembayaran
       const totalPaid = res.data.reduce((sum, payment) => sum + parseFloat(payment.payment_amount), 0);
@@ -656,7 +698,7 @@ export default function BookingChart() {
         status: 'confirm' // <-- tambahkan ini
       };
 
-      const response = await axios.post('http://localhost:8000/api/reservations', payload);
+      const response = await api.post('/reservations', payload);
 
       const newEventData = {
         id: response.data.data.id,
@@ -676,7 +718,11 @@ export default function BookingChart() {
       showSnackbar('Reservasi berhasil disimpan!', 'success');
       setNewEvent({ ...eventData, open: false });
     } catch (error) {
-      // Error handling
+      console.error('❌ Gagal menyimpan reservasi:', error.response?.data || error.message, error);
+      const validationErrors = error.response?.data?.errors;
+      const firstValidationMessage = validationErrors ? Object.values(validationErrors)[0]?.[0] : null;
+      const message = firstValidationMessage || error.response?.data?.message || 'Gagal menyimpan reservasi';
+      showSnackbar(message, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -728,9 +774,9 @@ export default function BookingChart() {
         status: updatedData.status // <-- TAMBAHKAN INI!
       };
 
-      const response = await axios.put(`http://localhost:8000/api/reservations/${updatedData.id}`, payload);
+      const response = await api.put(`/reservations/${updatedData.id}`, payload);
       // Setelah berhasil update reservasi, fetch ulang pembayaran terbaru
-      await axios.get(`http://localhost:8000/api/payments/by-booking/${updatedData.id}`);
+      await api.get(`/payments/by-booking/${updatedData.id}`);
 
       // Update event lokal
       await fetchReservations();
@@ -751,8 +797,8 @@ export default function BookingChart() {
       return;
     }
 
-    axios
-      .delete(`http://localhost:8000/api/reservations/${selectedEvent.id}`)
+    api
+      .delete(`/reservations/${selectedEvent.id}`)
       .then(() => {
         setEvents((prev) => prev.filter((event) => event.id !== selectedEvent.id));
 
@@ -787,10 +833,10 @@ export default function BookingChart() {
 
       const { room, start, end } = maintenanceEvent;
 
-      const isAvailable = checkRoomAvailability(roomType, subRoom, startDate, endDate, excludeId, events);
+      const isAvailable = checkRoomAvailability(maintenanceEvent.roomType, room, start, end, null, events);
 
       if (!isAvailable) {
-        showSnackbar(`Kamar nomor ${room} tidak tersedia pada tanggal tersebut.`);
+        showSnackbar(`Kamar nomor ${room} tidak tersedia pada tanggal tersebut.`, 'error');
         return;
       }
 
@@ -802,7 +848,7 @@ export default function BookingChart() {
         end_date: maintenanceEvent.end
       };
 
-      const response = await axios.post('http://localhost:8000/api/maintenance', payload);
+      const response = await api.post('/maintenance', payload);
 
       // Tambahkan ke events
       const newMaintenance = {
@@ -831,7 +877,7 @@ export default function BookingChart() {
 
   const handleDeleteMaintenance = async (id) => {
     try {
-      await axios.delete(`http://localhost:8000/api/maintenance/${id}`);
+      await api.delete(`/maintenance/${id}`);
       setEvents((prev) => prev.filter((event) => event.id !== id));
       showSnackbar('Maintenance berhasil dihapus!', 'success');
     } catch (error) {
@@ -1237,13 +1283,14 @@ export default function BookingChart() {
         resources={resources}
         handleUpdateEvent={handleUpdateEvent}
         setDeleteConfirm={setDeleteConfirm}
-        calculateTotalPrice={calculateTotalPrice}
+        calculateSmartPrice={calculateSmartPrice}
         checkRoomAvailability={checkRoomAvailability}
         handleAddComment={handleAddComment}
         handleAddPayment={handleAddPayment}
         events={events}
         onClose={() => setSelectedEvent(null)} // ✅ TAMBAHKAN INI
         fetchReservations={fetchReservations} // <-- Tambahkan ini!
+        onDownloadInvoice={handleDownloadInvoice}
       />
 
       {/* Delete Confirmation Dialog */}
@@ -1282,7 +1329,7 @@ export default function BookingChart() {
         setFormErrors={setFormErrors}
         resources={resources}
         checkRoomAvailability={checkRoomAvailability}
-        calculateTotalPrice={calculateTotalPrice}
+        calculateSmartPrice={calculateSmartPrice}
         events={events}
       />
 
@@ -1300,3 +1347,4 @@ export default function BookingChart() {
     </>
   );
 }
+

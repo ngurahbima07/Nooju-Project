@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'; // Tambahkan useCallback jika belum ada
+import React, { useState, useEffect, useCallback, useRef } from 'react'; // Tambahkan useCallback jika belum ada
 import {
   Modal,
   Box,
@@ -28,7 +28,7 @@ import {
 } from '@mui/icons-material';
 import AddPaymentContent from './AddPaymentContent';
 import BookingComments from './BookingComments';
-import axios from 'axios'; // <-- Import axios untuk panggilan API download
+import api from '../../api/axios'; // <-- Import instance axios terpusat untuk panggilan API
 
 const EditBookingModal = ({
   selectedEvent,
@@ -38,7 +38,7 @@ const EditBookingModal = ({
   resources,
   handleUpdateEvent,
   setDeleteConfirm,
-  calculateTotalPrice,
+  calculateSmartPrice,
   checkRoomAvailability,
   handleAddComment, // Jika ini fungsi yang dipanggil untuk menambah komentar
   handleAddPayment, // Jika ini fungsi yang dipanggil untuk menambah pembayaran
@@ -70,6 +70,12 @@ const EditBookingModal = ({
   const [hasLoadedRates, setHasLoadedRates] = useState(false);
   const [isSaving, setIsSaving] = useState(false); // State untuk loading tombol Save
   const [isDownloading, setIsDownloading] = useState(false); // <-- State untuk loading tombol download
+  const [priceLoading, setPriceLoading] = useState(false);
+  // Snapshot check-in/check-out/tipe kamar saat mode edit baru dinyalakan, supaya
+  // masuk ke mode edit saja TIDAK langsung menimpa harga yang sudah tersimpan
+  // (termasuk harga yang di-set manual). Smart Pricing baru dihitung ulang kalau
+  // salah satu dari tiga field ini benar-benar diubah oleh admin.
+  const initialPricingRef = useRef({ checkin: '', checkout: '', roomType: '' });
 
   // Menggunakan useCallback untuk handleCloseModal agar tidak berubah setiap render jika tidak ada dependensi yang berubah
   const handleCloseModal = useCallback(
@@ -144,7 +150,7 @@ const EditBookingModal = ({
         if (selectedEvent.id) {
           // Selalu fetch data terbaru jika ada ID
           try {
-            const response = await axios.get(`http://localhost:8000/api/reservations/${selectedEvent.id}`);
+            const response = await api.get(`/reservations/${selectedEvent.id}`);
             const latestData = response.data;
 
             setFormData((prev) => ({
@@ -221,25 +227,71 @@ const EditBookingModal = ({
     setFormData((prev) => {
       const newData = { ...prev, [name]: value };
 
-      // Recalculate total price if checkin, checkout, or roomType changes
-      if (name === 'checkin' || name === 'checkout' || name === 'roomType') {
-        if (newData.checkin && newData.checkout && newData.roomType) {
-          // Asumsi calculateTotalPrice adalah fungsi yang di-pass dari parent
-          // dan mengembalikan total harga berdasarkan roomType dan rentang tanggal
-          newData.totalPrice = calculateTotalPrice(newData.roomType, newData.checkin, newData.checkout);
-          // Jika Anda ingin dailyRates juga otomatis terisi/terupdate saat tanggal berubah
-          if (editMode) {
-            // Hanya generate rates jika dalam mode edit
-            generateRates(newData.checkin, newData.checkout, newData.totalPrice);
-          }
-        } else {
-          newData.totalPrice = 0; // Reset total jika tanggal atau tipe kamar tidak lengkap
-          setDailyRates([]);
-        }
+      // Reset nomor kamar kalau tipe kamar diganti, biar tidak ada kombinasi
+      // tipe kamar + nomor kamar yang tidak nyambung.
+      if (name === 'roomType' && value !== prev.roomType) {
+        newData.subRoom = '';
       }
+
       return newData;
     });
   };
+
+  // Ambil snapshot tanggal/tipe kamar setiap kali mode edit baru dinyalakan.
+  useEffect(() => {
+    if (editMode) {
+      initialPricingRef.current = {
+        checkin: formData.checkin,
+        checkout: formData.checkout,
+        roomType: formData.roomType
+      };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editMode]);
+
+  // Hitung ulang harga (Smart Pricing) hanya kalau admin BENAR-BENAR mengubah
+  // check-in/check-out/tipe kamar setelah masuk mode edit (bukan cuma karena
+  // baru saja menekan tombol "Edit"). Ini menjaga harga manual yang sudah
+  // di-set sebelumnya supaya tidak tertimpa diam-diam. Pakai tanggal booking
+  // ASLI (created_at) untuk multiplier lead-time, supaya mengubah tanggal
+  // menginap tidak diam-diam menghitung ulang lead-time seolah booking baru
+  // dibuat hari ini.
+  useEffect(() => {
+    if (!editMode) return;
+
+    const initial = initialPricingRef.current;
+    const unchanged =
+      formData.checkin === initial.checkin && formData.checkout === initial.checkout && formData.roomType === initial.roomType;
+    if (unchanged) return;
+
+    let active = true;
+    const bookingDate = (selectedEvent?.extendedProps?.created_at || '').slice(0, 10) || undefined;
+
+    const run = async () => {
+      if (!formData.checkin || !formData.checkout || !formData.roomType) return;
+      if (new Date(formData.checkout) <= new Date(formData.checkin)) return;
+
+      setPriceLoading(true);
+      const result = await calculateSmartPrice(formData.roomType, formData.checkin, formData.checkout, bookingDate);
+      if (!active) return;
+
+      setFormData((prev) => ({ ...prev, totalPrice: result.total }));
+
+      if (result.nights && result.nights.length > 0) {
+        setDailyRates(result.nights);
+      } else {
+        generateRates(formData.checkin, formData.checkout, result.total);
+      }
+      setPriceLoading(false);
+    };
+
+    run();
+
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.checkin, formData.checkout, formData.roomType, editMode]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -255,12 +307,11 @@ const EditBookingModal = ({
       return;
     }
 
-    // Panggil handleUpdateEvent dari parent
-    await handleUpdateEvent(
-      selectedEvent.id, // Teruskan ID reservasi
-      { ...formData, totalPrice: finalTotal },
-      dailyRates // Kirim juga dailyRates jika diperlukan di backend
-    );
+    // Panggil handleUpdateEvent dari parent. Perhatikan: handleUpdateEvent di
+    // BookingChart.jsx hanya menerima 2 argumen (updatedData, dailyRates) dan
+    // membaca updatedData.id/.roomType/dst -- jadi id HARUS ikut digabung ke
+    // dalam objek pertama, bukan dikirim sebagai argumen terpisah.
+    await handleUpdateEvent({ ...formData, id: selectedEvent.id, totalPrice: finalTotal }, dailyRates);
     setIsSaving(false); // Selesai loading
     cleanupAndClose(); // Tutup modal setelah simpan
     if (fetchReservations) {
@@ -470,14 +521,11 @@ const EditBookingModal = ({
                     fullWidth
                     required
                     value={formData.roomType}
-                    InputProps={{ readOnly: !editMode }}
+                    disabled={!editMode}
                     onChange={handleChange}
                   >
-                    {resources.map((res) => (
-                      <MenuItem key={res.id} value={res.title}>
-                        {res.title}
-                      </MenuItem>
-                    ))}
+                    <MenuItem value="Standard">Standard</MenuItem>
+                    <MenuItem value="Superior">Superior</MenuItem>
                   </TextField>
                 </Grid>
 
@@ -494,11 +542,12 @@ const EditBookingModal = ({
                   >
                     <MenuItem value="UNASSIGNED">Belum dipilih</MenuItem>
                     {resources
-                      .find((res) => res.title === formData.roomType)
-                      ?.extendedProps?.sub_rooms?.map((sub) => {
+                      .filter((room) => room.type === formData.roomType)
+                      .map((room) => {
+                        const roomNumber = room.title.split(' ')[1];
                         const isUnavailable = !checkRoomAvailability(
                           formData.roomType,
-                          sub.title, // Menggunakan sub.title (nomor kamar)
+                          roomNumber,
                           formData.checkin,
                           formData.checkout,
                           selectedEvent.id,
@@ -507,12 +556,12 @@ const EditBookingModal = ({
 
                         return (
                           <MenuItem
-                            key={sub.id}
-                            value={sub.title}
+                            key={room.id}
+                            value={roomNumber}
                             disabled={isUnavailable}
                             sx={{ opacity: isUnavailable ? 0.5 : 1, color: isUnavailable ? 'text.disabled' : 'inherit' }}
                           >
-                            {sub.title} {isUnavailable ? '(Dipakai)' : ''}
+                            {roomNumber} {isUnavailable ? '(Dipakai)' : ''}
                           </MenuItem>
                         );
                       })}
@@ -526,7 +575,7 @@ const EditBookingModal = ({
                     select
                     fullWidth
                     value={formData.ratePlan}
-                    InputProps={{ readOnly: !editMode }}
+                    disabled={!editMode}
                     onChange={handleChange}
                   >
                     <MenuItem value="Rooms Only">Rooms Only</MenuItem>
@@ -561,7 +610,7 @@ const EditBookingModal = ({
 
                 <Grid item xs={12}>
                   <TextField
-                    label="Total Harga"
+                    label={priceLoading ? 'Total Harga (menghitung ulang Smart Pricing...)' : 'Total Harga'}
                     value={(formData.totalPrice || 0).toLocaleString('id-ID', {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2
@@ -590,7 +639,7 @@ const EditBookingModal = ({
                     required
                     value={formData.status || 'confirm'}
                     onChange={handleChange}
-                    InputProps={{ readOnly: !editMode }}
+                    disabled={!editMode}
                   >
                     <MenuItem value="confirm">Confirm</MenuItem>
                     <MenuItem value="onhold">On Hold</MenuItem>
@@ -671,10 +720,10 @@ const EditBookingModal = ({
                     variant="contained"
                     type="submit"
                     startIcon={isSaving ? <CircularProgress size={24} color="inherit" /> : <SaveIcon />}
-                    disabled={isSaving}
+                    disabled={isSaving || priceLoading}
                     fullWidth
                   >
-                    {isSaving ? 'Saving...' : 'Simpan Perubahan'}
+                    {isSaving ? 'Saving...' : priceLoading ? 'Menghitung harga...' : 'Simpan Perubahan'}
                   </Button>
                 </>
               ) : (
@@ -728,3 +777,4 @@ const EditBookingModal = ({
 };
 
 export default EditBookingModal;
+

@@ -1,14 +1,14 @@
 // project import
 import dashboard from './dashboard';
-import pages from './page';
-import utilities from './utilities';
-import support from './support';
-import BookingChart from '../pages/BookingChart';
 
 // ==============================|| MENU ITEMS ||============================== //
+// Catatan: grup menu "Authentication" (link Login/Register di sidebar),
+// "Utilities" (Typography/Color/Shadow demo) dan "Support" (Sample Page +
+// link dokumentasi Mantis/CodedThemes) adalah bawaan template dan tidak
+// relevan untuk aplikasi ini, jadi tidak lagi ditampilkan di sidebar.
 
 const menuItems = {
-  items: [dashboard, pages, utilities, support] // Tambahkan BookingChart ke sini
+  items: [dashboard]
 };
 
 export default menuItems;

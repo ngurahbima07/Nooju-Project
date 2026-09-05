@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 // material-ui
 import useMediaQuery from '@mui/material/useMediaQuery';
@@ -20,13 +21,14 @@ import Box from '@mui/material/Box';
 import MainCard from 'components/MainCard';
 import IconButton from 'components/@extended/IconButton';
 import Transitions from 'components/@extended/Transitions';
+import api from 'api/axios';
 
 // assets
 import BellOutlined from '@ant-design/icons/BellOutlined';
 import CheckCircleOutlined from '@ant-design/icons/CheckCircleOutlined';
-import GiftOutlined from '@ant-design/icons/GiftOutlined';
-import MessageOutlined from '@ant-design/icons/MessageOutlined';
-import SettingOutlined from '@ant-design/icons/SettingOutlined';
+import LoginOutlined from '@ant-design/icons/LoginOutlined';
+import LogoutOutlined from '@ant-design/icons/LogoutOutlined';
+import ToolOutlined from '@ant-design/icons/ToolOutlined';
 
 // sx styles
 const avatarSX = {
@@ -35,24 +37,55 @@ const avatarSX = {
   fontSize: '1rem'
 };
 
-const actionSX = {
-  mt: '6px',
-  ml: 1,
-  top: 'auto',
-  right: 'auto',
-  alignSelf: 'flex-start',
-
-  transform: 'none'
-};
-
 // ==============================|| HEADER CONTENT - NOTIFICATION ||============================== //
+// Catatan: dulu isinya notifikasi palsu (ulang tahun, komentar, undangan
+// meeting) dari template. Sekarang menampilkan hal yang sungguh relevan
+// untuk homestay ini: check-in, check-out, dan kamar maintenance hari ini.
 
 export default function Notification() {
   const downMD = useMediaQuery((theme) => theme.breakpoints.down('md'));
+  const navigate = useNavigate();
 
   const anchorRef = useRef(null);
-  const [read, setRead] = useState(2);
   const [open, setOpen] = useState(false);
+  const [read, setRead] = useState(false);
+  const [items, setItems] = useState([]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    api
+      .get('/dashboard/summary')
+      .then((response) => {
+        if (!isMounted) return;
+        const data = response.data;
+        const list = [
+          ...(data.checkins_today || []).map((item) => ({
+            type: 'checkin',
+            text: `Tamu ${item.guest} check-in hari ini – ${item.room}`
+          })),
+          ...(data.checkouts_today || []).map((item) => ({
+            type: 'checkout',
+            text: `Tamu ${item.guest} check-out hari ini – ${item.room}`
+          })),
+          ...(data.maintenance_today || []).map((item) => ({
+            type: 'maintenance',
+            text: `${item.room} sedang maintenance${item.reason ? ` (${item.reason})` : ''}`
+          }))
+        ];
+        setItems(list);
+      })
+      .catch((err) => {
+        console.error('Gagal memuat notifikasi:', err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const unreadCount = read ? 0 : items.length;
+
   const handleToggle = () => {
     setOpen((prevOpen) => !prevOpen);
   };
@@ -62,6 +95,12 @@ export default function Notification() {
       return;
     }
     setOpen(false);
+  };
+
+  const iconFor = (type) => {
+    if (type === 'checkin') return { icon: <LoginOutlined />, color: 'success' };
+    if (type === 'checkout') return { icon: <LogoutOutlined />, color: 'primary' };
+    return { icon: <ToolOutlined />, color: 'warning' };
   };
 
   return (
@@ -74,13 +113,13 @@ export default function Notification() {
           bgcolor: open ? 'grey.100' : 'transparent',
           ...theme.applyStyles('dark', { bgcolor: open ? 'background.default' : 'transparent' })
         })}
-        aria-label="open profile"
+        aria-label="open notifications"
         ref={anchorRef}
-        aria-controls={open ? 'profile-grow' : undefined}
+        aria-controls={open ? 'notification-grow' : undefined}
         aria-haspopup="true"
         onClick={handleToggle}
       >
-        <Badge badgeContent={read} color="primary">
+        <Badge badgeContent={unreadCount} color="primary">
           <BellOutlined />
         </Badge>
       </IconButton>
@@ -98,15 +137,15 @@ export default function Notification() {
             <Paper sx={(theme) => ({ boxShadow: theme.customShadows.z1, width: '100%', minWidth: 285, maxWidth: { xs: 285, md: 420 } })}>
               <ClickAwayListener onClickAway={handleClose}>
                 <MainCard
-                  title="Notification"
+                  title="Notifikasi Hari Ini"
                   elevation={0}
                   border={false}
                   content={false}
                   secondary={
                     <>
-                      {read > 0 && (
-                        <Tooltip title="Mark as all read">
-                          <IconButton color="success" size="small" onClick={() => setRead(0)}>
+                      {unreadCount > 0 && (
+                        <Tooltip title="Tandai semua sudah dibaca">
+                          <IconButton color="success" size="small" onClick={() => setRead(true)}>
                             <CheckCircleOutlined style={{ fontSize: '1.15rem' }} />
                           </IconButton>
                         </Tooltip>
@@ -119,127 +158,45 @@ export default function Notification() {
                     sx={{
                       p: 0,
                       '& .MuiListItemButton-root': {
-                        py: 0.5,
+                        py: 1,
                         px: 2,
-                        '&.Mui-selected': { bgcolor: 'grey.50', color: 'text.primary' },
-                        '& .MuiAvatar-root': avatarSX,
-                        '& .MuiListItemSecondaryAction-root': { ...actionSX, position: 'relative' }
+                        '& .MuiAvatar-root': avatarSX
                       }
                     }}
                   >
-                    <ListItem
-                      component={ListItemButton}
-                      divider
-                      selected={read > 0}
-                      secondaryAction={
-                        <Typography variant="caption" noWrap>
-                          3:00 AM
-                        </Typography>
-                      }
-                    >
-                      <ListItemAvatar>
-                        <Avatar sx={{ color: 'success.main', bgcolor: 'success.lighter' }}>
-                          <GiftOutlined />
-                        </Avatar>
-                      </ListItemAvatar>
-                      <ListItemText
-                        primary={
-                          <Typography variant="h6">
-                            It&apos;s{' '}
-                            <Typography component="span" variant="subtitle1">
-                              Cristina danny&apos;s
-                            </Typography>{' '}
-                            birthday today.
-                          </Typography>
-                        }
-                        secondary="2 min ago"
-                      />
-                    </ListItem>
-                    <ListItem
-                      component={ListItemButton}
-                      divider
-                      secondaryAction={
-                        <Typography variant="caption" noWrap>
-                          6:00 AM
-                        </Typography>
-                      }
-                    >
-                      <ListItemAvatar>
-                        <Avatar sx={{ color: 'primary.main', bgcolor: 'primary.lighter' }}>
-                          <MessageOutlined />
-                        </Avatar>
-                      </ListItemAvatar>
-                      <ListItemText
-                        primary={
-                          <Typography variant="h6">
-                            <Typography component="span" variant="subtitle1">
-                              Aida Burg
-                            </Typography>{' '}
-                            commented your post.
-                          </Typography>
-                        }
-                        secondary="5 August"
-                      />
-                    </ListItem>
-                    <ListItem
-                      component={ListItemButton}
-                      divider
-                      selected={read > 0}
-                      secondaryAction={
-                        <Typography variant="caption" noWrap>
-                          2:45 PM
-                        </Typography>
-                      }
-                    >
-                      <ListItemAvatar>
-                        <Avatar sx={{ color: 'error.main', bgcolor: 'error.lighter' }}>
-                          <SettingOutlined />
-                        </Avatar>
-                      </ListItemAvatar>
-                      <ListItemText
-                        primary={
-                          <Typography variant="h6">
-                            Your Profile is Complete &nbsp;
-                            <Typography component="span" variant="subtitle1">
-                              60%
-                            </Typography>{' '}
-                          </Typography>
-                        }
-                        secondary="7 hours ago"
-                      />
-                    </ListItem>
-                    <ListItem
-                      component={ListItemButton}
-                      divider
-                      secondaryAction={
-                        <Typography variant="caption" noWrap>
-                          9:10 PM
-                        </Typography>
-                      }
-                    >
-                      <ListItemAvatar>
-                        <Avatar sx={{ color: 'primary.main', bgcolor: 'primary.lighter' }}>C</Avatar>
-                      </ListItemAvatar>
-                      <ListItemText
-                        primary={
-                          <Typography variant="h6">
-                            <Typography component="span" variant="subtitle1">
-                              Cristina Danny
-                            </Typography>{' '}
-                            invited to join{' '}
-                            <Typography component="span" variant="subtitle1">
-                              Meeting.
+                    {items.length === 0 && (
+                      <ListItem>
+                        <ListItemText
+                          primary={
+                            <Typography variant="body2" color="text.secondary">
+                              Tidak ada notifikasi hari ini.
                             </Typography>
-                          </Typography>
-                        }
-                        secondary="Daily scrum meeting time"
-                      />
-                    </ListItem>
-                    <ListItemButton sx={{ textAlign: 'center', py: `${12}px !important` }}>
+                          }
+                        />
+                      </ListItem>
+                    )}
+                    {items.map((item, idx) => {
+                      const { icon, color } = iconFor(item.type);
+                      return (
+                        <ListItem key={idx} component={ListItemButton} divider>
+                          <ListItemAvatar>
+                            <Avatar sx={{ color: `${color}.main`, bgcolor: `${color}.lighter` }}>{icon}</Avatar>
+                          </ListItemAvatar>
+                          <ListItemText primary={<Typography variant="body2">{item.text}</Typography>} />
+                        </ListItem>
+                      );
+                    })}
+                    <ListItemButton
+                      sx={{ textAlign: 'center', py: `${12}px !important` }}
+                      onClick={() => {
+                        setOpen(false);
+                        navigate('/booking-chart');
+                      }}
+                    >
                       <ListItemText
                         primary={
                           <Typography variant="h6" color="primary">
-                            View All
+                            Lihat Booking Chart
                           </Typography>
                         }
                       />

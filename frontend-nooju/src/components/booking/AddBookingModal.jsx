@@ -12,22 +12,45 @@ const AddBookingModal = ({
   setFormErrors,
   resources,
   checkRoomAvailability,
-  calculateTotalPrice,
+  calculateSmartPrice,
   events
 }) => {
   const [showRates, setShowRates] = useState(false);
   const [dailyRates, setDailyRates] = useState([]);
   const [manualTotal, setManualTotal] = useState('');
+  const [priceLoading, setPriceLoading] = useState(false);
 
-  // Generate rates when dates or total price change
+  // Hitung ulang harga (Smart Pricing) setiap kali check-in, check-out, atau
+  // tipe kamar berubah dan tanggalnya valid. Kalau API Smart Pricing gagal,
+  // calculateSmartPrice sudah punya fallback ke harga flat di dalamnya.
   useEffect(() => {
-    if (newEvent.checkin && newEvent.checkout && newEvent.totalPrice > 0) {
-      const nights = calculateNights(newEvent.checkin, newEvent.checkout);
-      if (dailyRates.length !== nights || dailyRates.length === 0) {
-        generateRates(newEvent.totalPrice, newEvent.checkin, newEvent.checkout);
+    let active = true;
+
+    const run = async () => {
+      if (!newEvent.checkin || !newEvent.checkout || !newEvent.roomType) return;
+      if (new Date(newEvent.checkout) <= new Date(newEvent.checkin)) return;
+
+      setPriceLoading(true);
+      const result = await calculateSmartPrice(newEvent.roomType, newEvent.checkin, newEvent.checkout);
+      if (!active) return;
+
+      setNewEvent((prev) => ({ ...prev, totalPrice: result.total }));
+
+      if (result.nights && result.nights.length > 0) {
+        setDailyRates(result.nights);
+      } else {
+        generateRates(result.total, newEvent.checkin, newEvent.checkout);
       }
-    }
-  }, [newEvent.checkin, newEvent.checkout, newEvent.totalPrice]);
+      setPriceLoading(false);
+    };
+
+    run();
+
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newEvent.checkin, newEvent.checkout, newEvent.roomType]);
 
   useEffect(() => {
     if (open) {
@@ -135,14 +158,10 @@ const AddBookingModal = ({
               value={newEvent.checkin}
               onChange={(e) => {
                 const updatedCheckin = e.target.value;
-                setNewEvent((prev) => {
-                  const newTotalPrice = calculateTotalPrice(prev.roomType, updatedCheckin, prev.checkout);
-                  return {
-                    ...prev,
-                    checkin: updatedCheckin,
-                    totalPrice: newTotalPrice
-                  };
-                });
+                setNewEvent((prev) => ({
+                  ...prev,
+                  checkin: updatedCheckin
+                }));
               }}
               required
             />
@@ -158,15 +177,13 @@ const AddBookingModal = ({
                 const updatedCheckout = e.target.value;
                 setNewEvent((prev) => {
                   const isInvalid = new Date(updatedCheckout) <= new Date(prev.checkin);
-                  const newTotalPrice = calculateTotalPrice(prev.roomType, prev.checkin, updatedCheckout);
                   setFormErrors((prevErr) => ({
                     ...prevErr,
                     invalidDateRange: isInvalid
                   }));
                   return {
                     ...prev,
-                    checkout: updatedCheckout,
-                    totalPrice: newTotalPrice
+                    checkout: updatedCheckout
                   };
                 });
               }}
@@ -195,8 +212,7 @@ const AddBookingModal = ({
                 setNewEvent((prev) => ({
                   ...prev,
                   roomType: updatedRoomType,
-                  subRoom: '',
-                  totalPrice: calculateTotalPrice(updatedRoomType, prev.checkin, prev.checkout)
+                  subRoom: ''
                 }));
               }}
               required
@@ -223,7 +239,14 @@ const AddBookingModal = ({
                 .filter((room) => room.type === newEvent.roomType)
                 .map((room) => {
                   const roomNumber = room.title.split(' ')[1];
-                  const isUnavailable = !checkRoomAvailability(roomNumber, newEvent.checkin, newEvent.checkout, null, events);
+                  const isUnavailable = !checkRoomAvailability(
+                    newEvent.roomType,
+                    roomNumber,
+                    newEvent.checkin,
+                    newEvent.checkout,
+                    null,
+                    events
+                  );
 
                   return (
                     <MenuItem key={room.id} value={roomNumber} disabled={isUnavailable}>
@@ -269,12 +292,16 @@ const AddBookingModal = ({
 
           <Grid item xs={6}>
             <TextField
-              label="Total Accommodation (IDR)"
+              label="Total Accommodation (IDR) — Smart Pricing"
               fullWidth
-              value={(newEvent.totalPrice || 0).toLocaleString('id-ID', {
-                style: 'currency',
-                currency: 'IDR'
-              })}
+              value={
+                priceLoading
+                  ? 'Menghitung harga...'
+                  : (newEvent.totalPrice || 0).toLocaleString('id-ID', {
+                      style: 'currency',
+                      currency: 'IDR'
+                    })
+              }
               InputProps={{ readOnly: true }}
             />
           </Grid>
@@ -357,6 +384,7 @@ const AddBookingModal = ({
                 }}
                 variant="contained"
                 disabled={
+                  priceLoading ||
                   !newEvent.firstName ||
                   !newEvent.lastName ||
                   !newEvent.checkin ||

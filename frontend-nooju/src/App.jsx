@@ -6,6 +6,7 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 import router from 'routes';
 import ThemeCustomization from 'themes';
 import ScrollTop from 'components/ScrollTop';
+import { AuthProvider } from 'contexts/AuthContext';
 
 // ==============================|| APP - THEME, ROUTER, LOCAL ||============================== //
 
@@ -14,7 +15,9 @@ export default function App() {
     <DndProvider backend={HTML5Backend}>
       <ThemeCustomization>
         <ScrollTop>
-          <RouterProvider router={router} />
+          <AuthProvider>
+            <RouterProvider router={router} />
+          </AuthProvider>
         </ScrollTop>
       </ThemeCustomization>
     </DndProvider>

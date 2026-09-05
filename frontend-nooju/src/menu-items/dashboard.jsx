@@ -1,4 +1,4 @@
-import { DashboardOutlined, CalendarOutlined, ProfileOutlined } from '@ant-design/icons';
+import { DashboardOutlined, CalendarOutlined, ProfileOutlined, FileTextOutlined, TagsOutlined } from '@ant-design/icons';
 
 const dashboard = {
   id: 'group-dashboard',
@@ -26,6 +26,20 @@ const dashboard = {
       type: 'item',
       url: '/booking-management',
       icon: <ProfileOutlined />
+    },
+    {
+      id: 'reports',
+      title: 'Laporan',
+      type: 'item',
+      url: '/reports',
+      icon: <FileTextOutlined />
+    },
+    {
+      id: 'smart-pricing',
+      title: 'Smart Pricing',
+      type: 'item',
+      url: '/smart-pricing',
+      icon: <TagsOutlined />
     }
   ]
 };

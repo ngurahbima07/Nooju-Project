@@ -1,12 +1,12 @@
+import PropTypes from 'prop-types';
 import { LineChart } from '@mui/x-charts/LineChart';
 import { Box } from '@mui/material';
 import MainCard from 'components/MainCard';
 
-export default function WeeklyBookingTrend() {
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-  const bookings = [25, 40, 30, 50, 45, 90, 80];
-  const guests = [10, 20, 28, 30, 32, 48, 40];
+export default function WeeklyBookingTrend({ labels, bookings, guests }) {
+  const days = labels && labels.length ? labels : ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
+  const bookingData = bookings && bookings.length ? bookings : [0, 0, 0, 0, 0, 0, 0];
+  const guestData = guests && guests.length ? guests : [0, 0, 0, 0, 0, 0, 0];
 
   return (
     <MainCard title="Trend Booking Mingguan" content={false}>
@@ -16,15 +16,15 @@ export default function WeeklyBookingTrend() {
           xAxis={[{ data: days, scaleType: 'point' }]}
           series={[
             {
-              label: 'Bookings',
-              data: bookings,
+              label: 'Booking',
+              data: bookingData,
               area: true,
               curve: 'monotone',
               color: '#42a5f5'
             },
             {
-              label: 'Guests',
-              data: guests,
+              label: 'Tamu',
+              data: guestData,
               area: true,
               curve: 'monotone',
               color: '#1e88e5'
@@ -44,3 +44,9 @@ export default function WeeklyBookingTrend() {
     </MainCard>
   );
 }
+
+WeeklyBookingTrend.propTypes = {
+  labels: PropTypes.arrayOf(PropTypes.string),
+  bookings: PropTypes.arrayOf(PropTypes.number),
+  guests: PropTypes.arrayOf(PropTypes.number)
+};

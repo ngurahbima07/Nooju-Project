@@ -17,7 +17,7 @@ import {
   Box,
   useTheme
 } from '@mui/material';
-import axios from 'axios';
+import api from '../../api/axios';
 import {
   Person as PersonIcon,
   CalendarToday as CalendarIcon,
@@ -32,8 +32,8 @@ export default function RecentBookingsCard() {
   const theme = useTheme();
 
   useEffect(() => {
-    axios
-      .get('http://localhost:8000/api/reservations/recent')
+    api
+      .get('/reservations/recent')
       .then((res) => {
         setBookings(res.data);
         setLoading(false);
@@ -183,3 +183,4 @@ function calculateNights(checkIn, checkOut) {
   const diff = end - start;
   return Math.floor(diff / (1000 * 60 * 60 * 24));
 }
+
